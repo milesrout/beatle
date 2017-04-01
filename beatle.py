@@ -44,7 +44,7 @@ def main():
 
     input_text = args.input.read()
 
-    return tokensif verbosity >= 1:
+    if verbosity >= 1:
         print('file:')
         print(input_text)
 
