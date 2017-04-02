@@ -94,8 +94,6 @@ class Parser:
             return self.del_stmt()
         if self.accept_next('pass'):
             return self.pass_stmt()
-        if self.accept_next('pass'):
-            return self.pass_stmt()
         if self.accept_next('assert'):
             return self.assert_stmt()
         if self.accept_next('global'):
@@ -116,8 +114,56 @@ class Parser:
             return self.import_stmt()
         return self.expr_stmt()
 
+    def del_stmt(self):
+        return DelStatement(self.exprlist())
+
     def pass_stmt(self):
         return PassStatement()
+
+    def assert_stmt(self):
+        exprs = [self.test()]
+        while self.accept_next('comma'):
+            exprs.append(self.test())
+        return AssertStatement(exprs)
+
+    def global_stmt(self):
+        names = [self.name()]
+        while self.accept_next('comma'):
+            names.append(self.name())
+        return GlobalStatement(names)
+
+    def nonlocal_stmt(self):
+        names = [self.name()]
+        while self.accept_next('comma'):
+            names.append(self.name())
+        return NonlocalStatement(names)
+
+    def break_stmt(self):
+        return BreakStatement()
+
+    def continue_stmt(self):
+        return ContinueStatement()
+
+    def return_stmt(self):
+        if self.accept('semicolon', 'newline'):
+            return ReturnStatement()
+        return ReturnStatement(self.testlist())
+
+    def raise_expr(self):
+        if self.accept('semicolon', 'newline'):
+            return RaiseStatement()
+        exc = self.test()
+        if self.accept_next('from'):
+            return RaiseStatement(exc, original=self.test())
+        return RaiseStatement(exc)
+
+    def yield_expr(self):
+        if self.accept_next('from'):
+            return YieldExpression(self.test())
+        return YieldExpression(self.testlist())
+
+    def import_stmt(self):
+        raise NotImplementedError
 
     def expr_stmt(self):
         tlse = self.testlist_star_expr()
@@ -154,7 +200,7 @@ class Parser:
         else:
             exprs.append(self.test())
         while self.accept_next('comma'):
-            if self.accept('equal', 'colon', *augassign_tokens):
+            if self.accept('equal', 'colon', *self.augassign_tokens):
                 return exprs
             if self.accept_next('asterisk'):
                 exprs.append(StarExpr(self.expr()))
@@ -195,6 +241,98 @@ class Parser:
         if self.accept_next('else'):
             branches.append((None, self.suite()))
         return IfElifElseStatement(branches)
+
+    def async_stmt(self):
+        if self.accept_next('def'):
+            return AsyncFunctionStatement(self.funcdef())
+        if self.accept_next('with'):
+            return AsyncWithStatement(self.with_stmt())
+        if self.accept_next('for'):
+            return AsyncForStatement(self.for_stmt())
+        self.raise_unexpected()
+
+    def while_stmt(self):
+        cond = self.test()
+        self.expect('colon')
+        suite = self.suite()
+        if self.accept_next('else'):
+            self.expect('colon')
+            alt = self.suite()
+            return WhileStatement(cond, suite, alt)
+        return WhileStatement(cond, suite)
+
+    def for_stmt(self):
+        assignees = self.exprlist()
+        self.expect('in')
+        iterables = self.testlist()
+        self.expect('colon')
+        body = self.suite()
+        if self.expect_next('else'):
+            self.expect('colon')
+            alt = self.suite()
+            return ForStatement(assignees, iterables, body, alt)
+        return ForStatement(assignees, iterables, body)
+
+    def try_stmt(self):
+        self.expect('colon')
+        try_body = self.suite()
+        excepts = []
+        elses = []
+        finallies = []
+        while self.accept('except', 'else', 'finally'):
+            if self.accept_next('except'):
+                excepts.append(self.except_block())
+            elif self.accept_next('else'):
+                elses.append(self.else_block())
+            elif self.accept_next('finally'):
+                finallies.append(self.finally_block())
+        return TryStatement(body=try_body,
+                            excepts=excepts,
+                            elses=elses,
+                            finallies=finallies)
+    def except_block(self):
+        if self.accept_next('colon'):
+            return ExceptBlock(body=self.suite())
+        test = self.test()
+        if self.accept_next('as'):
+            name = self.name()
+            self.expect('colon')
+            return ExceptBlock(test=test, name=name, body=self.suite())
+        return ExceptBlock(test=test, body=self.suite())
+
+    def else_block(self):
+        self.expect('colon')
+        return self.suite()
+
+    def finally_block(self):
+        self.expect('colon')
+        return self.suite()
+
+    def with_stmt(self):
+        items = [self.with_item()]
+        while self.accept_next('comma'):
+            items.append(self.with_item())
+        self.expect('colon')
+        return WithStatement(items, self.suite())
+
+    def with_item(self):
+        test = self.test()
+        if self.accept_next('as'):
+            return WithItem(test, expr)
+        return WithItem(test)
+
+    def classdef(self):
+        name = self.name()
+        if self.accept_next('lparen'):
+            if self.accept_next('rparen'):
+                bases = []
+            else:
+                bases = self.arglist()
+        self.expect('colon')
+        return ClassDef(name, bases, body=self.suite())
+
+    def decorated(self):
+        raise NotImplementedError
 
     def funcdef(self):
         name = self.get_token('id')
@@ -392,16 +530,19 @@ class Parser:
 
     def trailer(self):
         if self.accept_next('lparen'):
-            return self.call_trailer()
+            return CallTrailer(self.call_trailer())
         if self.accept_next('lbrack'):
-            return self.index_trailer()
+            return IndexTrailer(self.index_trailer())
         if self.accept_next('dot'):
-            return self.attr_trailer()
+            return AttrTrailer(self.attr_trailer())
         self.raise_unexpected()
 
     def call_trailer(self):
         if self.accept_next('rparen'):
             return []
+        return self.arglist()
+
+    def arglist(self):
         args = [self.argument()]
         while self.accept_next('comma'):
             if self.accept_next('rparen'):

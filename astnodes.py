@@ -30,6 +30,8 @@ FloatExpression = namedtuple('FloatExpression', 'format expr')
 IdExpression = namedtuple('IdExpression', 'name')
 StringExpression = namedtuple('StringExpression', 'type unparsed')
 
+CallTrailer = namedtuple('CallTrailer', 'args')
+
 class Param:
     def __init__(self, fpdef, default):
         self.name, self.annotation = fpdef
@@ -55,4 +57,7 @@ class ComparisonChain:
         """
         self.input = chain
         self.result = list(nviews(chain, 3))[::2]
+
+    def __repr__(self):
+        return repr(self.result)
 
