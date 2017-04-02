@@ -44,23 +44,21 @@ def main():
 
     input_text = args.input.read()
 
-    if verbosity >= 1:
+    if verbosity >= 2:
         print('file:')
         print(input_text)
 
     tokens = scanner.scan(args.keywords, args.tokens, input_text)
 
-    if verbosity >= 1:
+    if verbosity >= 2:
         print('tokens:')
         print(pformat(tokens))
 
-    ast = parser.parse(tokens)
+    ast = parser.single_input(tokens)
 
     if verbosity >= 1:
         print('ast:')
         print(pformat(ast))
-
-pformat = pprint.PrettyPrinter(indent=4, compact=True).pformat
 
 if __name__ == '__main__':
     main()

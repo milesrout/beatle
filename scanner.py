@@ -56,7 +56,10 @@ def is_newline(tok):
 def split_into_physical_lines(tokens):
     """Split the list of tokens on newline tokens"""
     for k, group in groupby(tokens, is_newline):
-        if not k:
+        if k:
+            for i in range(len(list(group)) - 1):
+                yield []
+        else:
             yield list(group)
 
 def is_space(tok):
@@ -87,7 +90,7 @@ def join_continuation_backslashes(lines):
     indent_level = None
     logical_line = []
     for line in lines:
-        if line.content[-1].type == 'backslash':
+        if len(line.content) != 0 and line.content[-1].type == 'backslash':
             # Always keep the initial indent level
             if indent_level is None:
                 indent_level = line.indent
@@ -132,13 +135,18 @@ def create_indentation_tokens(lines):
 
 @precompose(iter)
 def create_newline_tokens(lines):
-    yield from next(lines)
     for line in lines:
-        yield Token('newline', '\n')
         yield from line
+        yield Token('newline', '\n')
+
+def remove_remaining_whitespace(tokens):
+    return (t for t in tokens if t.type != 'space')
+
+def add_eof_token(tokens):
+    return itertools.chain(tokens, (Token('EOF', ''),))
 
 @compose(list)
-def scan(keywords, tokens, input_text):
+def scan(keywords, tokens, input_text, add_eof=False):
     regex = make_regex(keywords, tokens)
     tokens = lex(regex, input_text)
 
@@ -151,8 +159,12 @@ def scan(keywords, tokens, input_text):
         join_continuation_backslashes,
         join_implicit_continuation_lines,
         create_indentation_tokens,
-        create_newline_tokens
+        create_newline_tokens,
+        remove_remaining_whitespace,
     ]
+
+    if add_eof:
+        lexing_steps.append(add_eof_token)
 
     for step in lexing_steps:
         tokens = step(tokens)

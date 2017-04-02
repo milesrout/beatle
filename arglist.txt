@@ -1,0 +1,38 @@
+three possibilities:
+    this: tfpdef ['=' test] (',' tfpdef ['=' test])*
+          [',' [ '*' [tfpdef] (',' tfpdef ['=' test])* [',' ['**' tfpdef [',']]]
+               | '**' tfpdef [',']]]
+
+    this: dtfpdef (',' dtfpdef)*
+          [',' [ '*' [tfpdef] (',' dtfpdef)* [',' ['**' tfpdef [',']]]
+               | '**' tfpdef [',']]]
+    a=1
+    a=1, b=2, c=2
+    a=1, b=2, c=2,
+    a=1, b=2, c=2, *
+    a=1, b=2, c=2, *, d=3
+    a=1, b=2, c=2, *, d=3,
+    a=1, b=2, c=2, *, d=3, e=4, **ks
+    a=1, b=2, c=2, *, d=3, e=4, **ks,
+    a=1, b=2, c=2, *a
+    a=1, b=2, c=2, *a, d=3, e=4
+    a=1, b=2, c=2, *a, d=3, e=4,
+    a=1, b=2, c=2, *a, d=3, e=4, **ks
+    a=1, b=2, c=2, *a, d=3, e=4, **ks,
+    a=1, b=2, c=2, **ks
+    a=1, b=2, c=2, **ks,
+
+    orthis: '*' [tfpdef] (',' tfpdef ['=' test])* [',' ['**' tfpdef [',']]]
+
+    *
+    *a
+    *a,b=1
+    *a,b=1,c=1
+    *a,b=1,c=1,
+    *a,b=1,c=1,**d
+    *a,b=1,c=1,**d,
+
+    orthis: '**' tfpdef [',']
+
+    **a
+    **a,

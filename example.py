@@ -2,8 +2,10 @@ def hello(world):
     def foo():
         pass; \
                 pass
-        print('foo',
-            5)
+        if 0 < 0.05 <= 1:
+            print('foo',
+                5)
         pass
     foo()
-print('hi!')
+
+
