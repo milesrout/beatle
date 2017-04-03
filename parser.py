@@ -683,10 +683,33 @@ class Parser:
             return CompForArg(self.comp_for())
         return keyword
 
+    @compose(list)
     def index_trailer(self):
-        if self.accept_next('rbrack'):
-            return []
-        raise NotImplementedError
+        while not self.accept_next('rbrack'):
+            yield self.subscript()
+
+    def subscript(self):
+        "subscript: test | [test] ':' [test] [':' [test]]"
+        idx_or_start = None
+        if not self.accept('colon'):
+            idx_or_start = self.test()
+            if not self.accept('colon'):
+                return Index(idx=idx_or_start)
+        self.expect('colon')
+        end, step = self.rest_of_slice()
+        return Slice(start=idx_or_start, end=end, step=step)
+
+    def rest_of_slice(self):
+        end, step = None, None
+        if not self.accept('colon', 'rbrack', 'comma'):
+            end = self.test()
+        if self.accept_next('colon'):
+            step = self.sliceop()
+        return end, step
+
+    def sliceop(self):
+        if not self.accept('rbrack', 'comma'):
+            return self.test()
 
     def attr_trailer(self):
         raise NotImplementedError
