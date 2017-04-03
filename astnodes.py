@@ -75,6 +75,9 @@ StarStarKwarg = namedtuple('StarStarKwarg', 'name')
 KeywordArg = namedtuple('KeywordArg', 'name expr')
 CompForArg = namedtuple('CompForArg', 'comp')
 
+CompForClause = namedtuple('CompForClause', 'is_async exprs iterable')
+CompIfClause = namedtuple('CompIfClause', 'test')
+
 class Param:
     def __init__(self, name, annotation, default):
         self.name = name

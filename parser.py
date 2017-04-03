@@ -91,18 +91,22 @@ class Parser:
         else:
             return self.simple_stmt()
 
+    @compose(list)
     def simple_stmt(self):
-        stmts = []
-        stmts.append(self.small_stmt())
+        yield self.small_stmt()
         while self.accept_next('semicolon'):
             if self.accept_next('newline'):
-                return stmts
-            stmts.append(self.small_stmt())
+                return
+            yield self.small_stmt()
         self.expect('newline')
-        return stmts
 
+    @compose(list)
     def testlist(self):
-        raise NotImplementedError
+        yield self.test()
+        while self.accept_next('comma'):
+            if self.accept('semicolon', 'newline', 'equal'):
+                return
+            yield self.test()
 
     def small_stmt(self):
         if self.accept_next('del'):
@@ -124,7 +128,7 @@ class Parser:
         if self.accept_next('raise'):
             return self.raise_expr()
         if self.accept_next('yield'):
-            return self.yield_expr()
+            return self.yield_expr('semicolon', 'newline')
         if self.accept('import', 'from'):
             return self.import_stmt()
         return self.expr_stmt()
@@ -162,7 +166,7 @@ class Parser:
     def return_stmt(self):
         if self.accept('semicolon', 'newline'):
             return ReturnStatement(None)
-        return ReturnStatement(self.testlist())
+        return ReturnStatement(self.testlist('newline'))
 
     def raise_expr(self):
         if self.accept('semicolon', 'newline'):
@@ -172,10 +176,12 @@ class Parser:
             return RaiseStatement(exc, original=self.test())
         return RaiseStatement(exc, original=None)
 
-    def yield_expr(self):
+    def yield_expr(self, *terminators):
         if self.accept_next('from'):
-            return YieldExpression(self.test())
-        return YieldExpression(self.testlist())
+            return YieldExpression(exprs=[self.test()])
+        if self.accept(*terminators):
+            return YieldExpression(exprs=[])
+        return YieldExpression(exprs=self.testlist())
 
     def import_stmt(self):
         if self.accept_next('from'):
@@ -255,14 +261,14 @@ class Parser:
         if self.accept(*self.augassign_tokens):
             augtype = self.get_token().type
             if self.accept_next('yield'):
-                expr = self.yield_expr()
+                expr = self.yield_expr('semicolon', 'newline')
             else:
                 expr = self.testlist()
             return AugmentedAssignment(augtype, expr)
         exprs = [tlse]
         while self.accept_next('equal'):
             if self.accept_next('yield'):
-                exprs.append(self.yield_expr())
+                exprs.append(self.yield_expr('equal', 'semicolon', 'newline'))
             else:
                 exprs.append(self.testlist_star_expr())
         if len(exprs) == 1:
@@ -519,6 +525,13 @@ class Parser:
             return Statements(stmts)
         return self.simple_stmt()
 
+    def lambdef(self):
+        if self.accept_next('colon'):
+            return Lambda(args=[], body=self.test())
+        args = self.varparamslist()
+        self.expect('colon')
+        return LambdaExpression(args=args, body=self.test())
+
     def test(self):
         if self.accept_next('lambda'):
             return self.lambdef()
@@ -680,7 +693,7 @@ class Parser:
         if self.accept_next('equal'):
             return KeywordArg(keyword, self.test())
         if self.accept('async', 'for'):
-            return CompForArg(self.comp_for())
+            return CompForArg(keyword, self.comp_for())
         return keyword
 
     @compose(list)
@@ -712,15 +725,83 @@ class Parser:
             return self.test()
 
     def attr_trailer(self):
-        raise NotImplementedError
+        self.expect('dot')
+        return self.name()
+
+    def star_expr(self):
+        self.expect('asterisk')
+        return StarExpr(self.expr())
+
+    def star_expr_or_test(self):
+        if self.accept_next('asterisk'):
+            return StarExpr(self.expr())
+        else:
+            return self.test()
+
+    def starstar_expr_or_pair(self):
+        if self.accept_next('double_asterisk'):
+            return StarStarExpr(self.expr())
+        else:
+            return DictPair(self.test(), self.test())
+
+    def testlist_comp(self, *terminators):
+        exprs = [self.star_expr_or_test()]
+        if self.accept('async', 'for'):
+            return Comprehension(exprs[0], self.comp_for())
+        while self.accept_next('comma'):
+            if self.accept(*terminators):
+                break
+            exprs.append(self.star_expr_or_test())
+        return Literal(exprs)
+
+    def rest_of_dictmaker(self, first):
+        if self.accept('async', 'for'):
+            return DictComprehension(first, self.comp_for())
+        while self.accept_next('comma'):
+            if self.accept('rbrace'):
+                break
+            exprs.append(self.starstar_expr_or_pair())
+        return DictLiteral(exprs)
+
+    def rest_of_setmaker(self, first):
+        if self.accept('async', 'for'):
+            return SetComprehension(first, self.comp_for())
+        while self.accept_next('comma'):
+            if self.accept('rbrace'):
+                break
+            exprs.append(self.star_expr_or_test())
+        return SetLiteral(exprs)
+
+    def dictorsetmaker(self):
+        if self.accept_next('double_asterisk'):
+            return self.rest_of_dictmaker(StarStarExpr(self.expr()))
+        if self.accept_next('asterisk'):
+            return self.rest_of_setmaker(StarArg(self.expr()))
+        expr = self.test()
+        if self.accept_next('colon'):
+            return self.rest_of_dictmaker(ColonPair(expr, self.test()))
+        return self.rest_of_setmaker(expr)
 
     def atom(self):
         if self.accept_next('lparen'):
-            raise NotImplementedError
+            if self.accept_next('rparen'):
+                return EmptyTupleExpression()
+            if self.accept_next('yield'):
+                expr = self.yield_expr('rparen')
+            else:
+                expr = GenExprOrTupleLiteral(self.testlist_comp('rparen'))
+            self.expect('rparen')
+            return expr
         if self.accept_next('lbrack'):
-            raise NotImplementedError
+            if self.accept_next('rparen'):
+                return EmptyListExpression()
+            expr = self.testlist_comp('rbrack')
+            self.expect('rbrack')
+            return ListCompOrListLiteral(expr)
         if self.accept_next('lbrace'):
-            raise NotImplementedError
+            if self.accept_next('rbrace'):
+                return EmptyDictExpression()
+            return self.dictorsetmaker()
         if self.accept('id'):
             return self.name()
         if self.accept(*self.int_tokens):
@@ -738,6 +819,26 @@ class Parser:
         if self.accept_next('False'):
             return FalseExpression()
         self.raise_unexpected()
+
+    @compose(list)
+    def comp_for(self):
+        yield self.comp_for_clause()
+        while self.accept('if', 'async', 'for'):
+            if self.accept_next('if'):
+                yield self.comp_if_clause()
+            else:
+                yield self.comp_for_clause()
+
+    def comp_for_clause(self):
+        is_async = self.accept_next('async')
+        self.expect('for')
+        exprs = self.exprlist()
+        self.expect('in')
+        iterable = self.or_test()
+        return CompForClause(is_async=is_async, exprs=exprs, iterable=iterable)
+
+    def comp_if_clause(self):
+        return CompIfClause(test=self.test_nocond())
 
     def int_number(self):
         return IntExpression(*self.expect_get(*self.int_tokens))
