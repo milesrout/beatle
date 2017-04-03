@@ -48,13 +48,13 @@ def main():
         print('file:')
         print(input_text)
 
-    tokens = scanner.scan(args.keywords, args.tokens, input_text)
+    tokens = scanner.scan(args.keywords, args.tokens, input_text, add_eof=True)
 
     if verbosity >= 2:
         print('tokens:')
         print(pformat(tokens))
 
-    ast = parser.single_input(tokens)
+    ast = parser.file_input(tokens)
 
     if verbosity >= 1:
         print('ast:')

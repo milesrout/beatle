@@ -61,6 +61,7 @@ def split_into_physical_lines(tokens):
                 yield []
         else:
             yield list(group)
+    yield []
 
 def is_space(tok):
     return tok.type == 'space'
@@ -146,7 +147,7 @@ def add_eof_token(tokens):
     return itertools.chain(tokens, (Token('EOF', ''),))
 
 @compose(list)
-def scan(keywords, tokens, input_text, add_eof=False):
+def scan(keywords, tokens, input_text, *, add_eof=False):
     regex = make_regex(keywords, tokens)
     tokens = lex(regex, input_text)
 

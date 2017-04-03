@@ -22,7 +22,7 @@ irrelevant_content_tokens = ['newline', 'indent', 'dedent', 'EOF']
 class Token(namedtuple('Token', 'type string')):
     def __repr__(self):
         if self.type in variable_content_tokens:
-            return f'{self.type}={self.string!r}'
+            return f'{{{self.type}={self.string!r}}}'
         if self.type in irrelevant_content_tokens:
             return repr(self.type).upper()
         return repr(self.string)

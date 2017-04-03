@@ -12,7 +12,7 @@ from utils import *
 class Parser:
     """A parser for the Beatle programming language"""
 
-    compound_tokens = 'if while for try with def class ampersand async'.split()
+    compound_tokens = 'if while for try with def class at async'.split()
     ops = 'plus minus times matmul div mod and or xor lsh rsh exp'.split()
     augassign_tokens = [f'aug_{op}' for op in ops]
     comparison_op_tokens = 'lt gt eq ge le ne in is'.split()
@@ -34,6 +34,15 @@ class Parser:
             raise ApeSyntaxError(f"expected '{type}', got {tok}")
         self.index += 1
         return tok
+
+    def expect_get(self, *expected):
+        actual = self.current_token()
+        if actual.type not in expected:
+            friendly = '|'.join(expected)
+            raise ApeSyntaxError(f"expected '{friendly}', got {actual}")
+        else:
+            self.index += 1
+            return actual
 
     def expect(self, expected):
         actual = self.current_token()
@@ -57,10 +66,13 @@ class Parser:
             self.index += 1
         return actual == acceptable
 
+    @compose(list)
     def file_input(self):
         """Returns a list of statement objects"""
-        while self.current_token().type != 'EOF':
-            raise NotImplementedError
+        while not self.accept_next('EOF'):
+            if self.accept_next('newline'):
+                continue
+            yield self.stmt()
 
     def single_input(self):
         """Returns a list of statement objects"""
@@ -88,6 +100,9 @@ class Parser:
             stmts.append(self.small_stmt())
         self.expect('newline')
         return stmts
+
+    def testlist(self):
+        raise NotImplementedError
 
     def small_stmt(self):
         if self.accept_next('del'):
@@ -146,16 +161,16 @@ class Parser:
 
     def return_stmt(self):
         if self.accept('semicolon', 'newline'):
-            return ReturnStatement()
+            return ReturnStatement(None)
         return ReturnStatement(self.testlist())
 
     def raise_expr(self):
         if self.accept('semicolon', 'newline'):
-            return RaiseStatement()
+            return RaiseStatement(exc=None, original=None)
         exc = self.test()
         if self.accept_next('from'):
             return RaiseStatement(exc, original=self.test())
-        return RaiseStatement(exc)
+        return RaiseStatement(exc, original=None)
 
     def yield_expr(self):
         if self.accept_next('from'):
@@ -163,25 +178,87 @@ class Parser:
         return YieldExpression(self.testlist())
 
     def import_stmt(self):
-        raise NotImplementedError
+        if self.accept_next('from'):
+            return self.import_from()
+        elif self.accept_next('import'):
+            return self.import_name()
+        raise LogicError(f'{import_stmt} called in the wrong context')
+
+    def import_name(self):
+        return ImportStatement(names=self.dotted_as_names())
+
+    def import_from(self):
+        dots = self.import_dots()
+        name = None
+        if self.accept('id'):
+            name = self.dotted_name()
+        self.expect('import')
+        if self.accept_next('asterisk'):
+            return FromImportStatement(name=name, dots=dots, what=None)
+        if self.accept_next('lparen'):
+            what = self.import_as_names()
+            self.expect('rparen')
+            return FromImportStatement(name=name, dots=dots, what=what)
+        return FromImportStatement(name=name, dots=dots, what=self.import_as_names())
+
+    @compose(sum)
+    def import_dots(self):
+        while self.accept('dot', 'ellipsis'):
+            if self.accept_next('ellipsis'):
+                yield 3
+            if self.accept_next('dot'):
+                yield 1
+
+    def import_as_name(self):
+        name = self.name()
+        if self.accept_next('as'):
+            return ImportName(name, alias=self.name())
+        return ImportName(name, alias=None)
+
+    def dotted_as_name(self):
+        name = self.dotted_name()
+        if self.accept_next('as'):
+            return ImportName(name, alias=self.name())
+        return ImportName(name, alias=None)
+
+    @compose(list)
+    def import_as_names(self):
+        yield self.import_as_name()
+        while self.accept_next('comma'):
+            if not self.accept('id'):
+                return
+            yield self.import_as_name()
+
+    @compose(list)
+    def dotted_as_names(self):
+        yield self.dotted_as_name()
+        while self.accept_next('comma'):
+            yield self.dotted_as_name()
+
+    @compose(list)
+    def dotted_name(self):
+        yield self.name()
+        while self.accept_next('dot'):
+            yield self.name()
 
     def expr_stmt(self):
         tlse = self.testlist_star_expr()
         if self.accept_next('colon'):
             annotation = self.test()
             if self.accept_next('equal'):
-                return Assign(type='equal',
-                              assignee=tlse,
-                              expr=self.test(),
-                              annotation=annotation)
-            return AnnotatedExpr(tlse, annotation)
+                return AnnotatedAssignment(
+                    type='equal',
+                    assignee=tlse,
+                    expr=self.test(),
+                    annotation=annotation)
+            return AnnotatedExpression(tlse, annotation)
         if self.accept(*self.augassign_tokens):
             augtype = self.get_token().type
             if self.accept_next('yield'):
                 expr = self.yield_expr()
             else:
                 expr = self.testlist()
-            return Assignment(augtype, expr)
+            return AugmentedAssignment(augtype, expr)
         exprs = [tlse]
         while self.accept_next('equal'):
             if self.accept_next('yield'):
@@ -191,7 +268,7 @@ class Parser:
         if len(exprs) == 1:
             return tlse
         else:
-            return AssignMany(exprs)
+            return Assignment(exprs)
 
     def testlist_star_expr(self):
         exprs = []
@@ -223,7 +300,7 @@ class Parser:
             return self.funcdef()
         elif self.accept_next('class'):
             return self.classdef()
-        elif self.accept_next('ampersand'):
+        elif self.accept_next('at'):
             return self.decorated()
         elif self.accept_next('async'):
             return self.async_stmt()
@@ -242,6 +319,10 @@ class Parser:
             branches.append((None, self.suite()))
         return IfElifElseStatement(branches)
 
+    def async_funcdef(self):
+        self.expect('def')
+        return AsyncFunctionStatement(self.funcdef())
+
     def async_stmt(self):
         if self.accept_next('def'):
             return AsyncFunctionStatement(self.funcdef())
@@ -259,7 +340,7 @@ class Parser:
             self.expect('colon')
             alt = self.suite()
             return WhileStatement(cond, suite, alt)
-        return WhileStatement(cond, suite)
+        return WhileStatement(cond, suite, alt=None)
 
     def for_stmt(self):
         assignees = self.exprlist()
@@ -271,7 +352,7 @@ class Parser:
             self.expect('colon')
             alt = self.suite()
             return ForStatement(assignees, iterables, body, alt)
-        return ForStatement(assignees, iterables, body)
+        return ForStatement(assignees, iterables, body, alt=None)
 
     def try_stmt(self):
         self.expect('colon')
@@ -298,7 +379,7 @@ class Parser:
             name = self.name()
             self.expect('colon')
             return ExceptBlock(test=test, name=name, body=self.suite())
-        return ExceptBlock(test=test, body=self.suite())
+        return ExceptBlock(test=test, name=None, body=self.suite())
 
     def else_block(self):
         self.expect('colon')
@@ -316,10 +397,10 @@ class Parser:
         return WithStatement(items, self.suite())
 
     def with_item(self):
-        test = self.test()
+        expr = self.test()
         if self.accept_next('as'):
-            return WithItem(test, expr)
-        return WithItem(test)
+            return WithItem(expr=expr, assignee=self.expr())
+        return WithItem(expr=expr, assignee=None)
 
     def classdef(self):
         name = self.name()
@@ -331,8 +412,34 @@ class Parser:
         self.expect('colon')
         return ClassDef(name, bases, body=self.suite())
 
+    def decorator(self):
+        name = self.dotted_name()
+        if self.accept_next('lparen'):
+            if self.accept_next('rparen'):
+                args = []
+            else:
+                args = self.arglist()
+        else:
+            args = None
+        self.expect('newline')
+        return Decorator(name, args)
+
     def decorated(self):
-        raise NotImplementedError
+        decorators = self.decorators()
+        if self.accept_next('class'):
+            defn = self.classdef()
+        elif self.accept_next('async'):
+            defn = self.async_funcdef()
+        elif self.accept_next('def'):
+            defn = self.funcdef()
+        else:
+            raise_unexpected()
+        return Decorated(decorators=decorators, defn=defn)
+
+    @compose(list)
+    def decorators(self):
+        while self.accept_next('at'):
+            yield self.decorator()
 
     def funcdef(self):
         name = self.get_token('id')
@@ -354,13 +461,13 @@ class Parser:
         return params
 
     def kwparam(self):
-        param = StarStarKwparams(self.tfpdef())
+        param = StarStarKwparam(self.tfpdef())
         self.accept_next('comma')
         return param
 
     def varparams(self):
         if self.accept('id'):
-            params = [StarParams(self.tfpdef())]
+            params = [StarParam(self.tfpdef())]
         else:
             params = [EndOfPosParams()]
         while self.accept_next('comma'):
@@ -372,11 +479,11 @@ class Parser:
                 return params
 
     def dtfpdef(self):
-        name = self.tfpdef()
+        name, annotation = self.tfpdef()
         if self.accept_next('equal'):
-            return Param(name, self.test())
+            return Param(name, annotation, self.test())
         else:
-            return Param(name, None)
+            return Param(name, annotation, None)
 
     def typedparamslist(self):
         if self.accept_next('double_asterisk'):
@@ -501,7 +608,7 @@ class Parser:
 
     def term(self):
         factor = self.factor()
-        if self.accept('asterisk', 'ampersand', 'div', 'mod', 'truediv'):
+        if self.accept('asterisk', 'at', 'div', 'mod', 'truediv'):
             return TermExpression(self.get_token().type, factor, self.term())
         return factor
 
@@ -568,12 +675,12 @@ class Parser:
         if self.accept_next('asterisk'):
             return StarArg(self.test())
         if self.accept_next('double_asterisk'):
-            return StarStarKwargs(self.test())
+            return StarStarKwarg(self.test())
         keyword = self.test()
         if self.accept_next('equal'):
-            return Arg(keyword, self.test())
+            return KeywordArg(keyword, self.test())
         if self.accept('async', 'for'):
-            return Arg(keyword, self.comp_for())
+            return CompForArg(self.comp_for())
         return keyword
 
     def index_trailer(self):
@@ -610,16 +717,16 @@ class Parser:
         self.raise_unexpected()
 
     def int_number(self):
-        return IntExpression(*self.get_token())
+        return IntExpression(*self.expect_get(*self.int_tokens))
 
     def float_number(self):
-        return FloatExpression(*self.get_token())
+        return FloatExpression(*self.expect_get(*self.float_tokens))
 
     def name(self):
-        return IdExpression(self.get_token().string)
+        return IdExpression(self.expect_get('id').string)
 
     def string(self):
-        return StringExpression(*self.get_token())
+        return StringExpression(*self.expect_get(*self.string_tokens))
 
 def single_input(tokens):
     return Parser(tokens).single_input()
