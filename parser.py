@@ -31,7 +31,7 @@ class Parser:
     def get_token(self, type=None):
         tok = self.tokens[self.index]
         if type is not None and tok.type != type:
-            raise ApeSyntaxError(f"expected '{type}', got {tok}")
+            raise ApeSyntaxError(tok.line, tok.col, f"expected '{type}', got {tok}")
         self.index += 1
         return tok
 
@@ -39,7 +39,7 @@ class Parser:
         actual = self.current_token()
         if actual.type not in expected:
             friendly = '|'.join(expected)
-            raise ApeSyntaxError(f"expected '{friendly}', got {actual}")
+            raise ApeSyntaxError(tok.line, tok.col, f"expected '{friendly}', got {actual}")
         else:
             self.index += 1
             return actual
@@ -47,14 +47,14 @@ class Parser:
     def expect(self, expected):
         actual = self.current_token()
         if actual.type != expected:
-            raise ApeSyntaxError(f"expected '{expected}', got {actual}")
+            raise ApeSyntaxError(actual.line, actual.col, f"expected '{expected}', got {actual}")
         else:
             self.index += 1
 
     def raise_unexpected(self):
         tok = self.current_token()
         rest = self.tokens[self.index-5:]
-        raise ApeSyntaxError(f'unexpected token: {tok} ...context: {rest}')
+        raise ApeSyntaxError(tok.line, tok.col, f'unexpected token: {tok} ...context: {rest}')
 
     def accept(self, *acceptable):
         actual = self.current_token().type
@@ -274,7 +274,7 @@ class Parser:
         if len(exprs) == 1:
             return tlse
         else:
-            return Assignment(exprs)
+            return ChainedAssignment(exprs)
 
     def testlist_star_expr(self):
         exprs = []
@@ -410,10 +410,9 @@ class Parser:
 
     def classdef(self):
         name = self.name()
+        bases = []
         if self.accept_next('lparen'):
-            if self.accept_next('rparen'):
-                bases = []
-            else:
+            if not self.accept_next('rparen'):
                 bases = self.arglist()
         self.expect('colon')
         return ClassDef(name, bases, body=self.suite())
@@ -725,7 +724,6 @@ class Parser:
             return self.test()
 
     def attr_trailer(self):
-        self.expect('dot')
         return self.name()
 
     def star_expr(self):

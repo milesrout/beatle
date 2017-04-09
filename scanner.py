@@ -44,8 +44,11 @@ def lex(pattern, string):
             raise RuntimeError('unlexable gap between {i} and {j}: {gap}'.format(
                 i=i, j=i+j, gap=string[i:i+j]))
         groups = sorted(match.groupdict().items(), key=operator.itemgetter(0))
-        group = next((k, v) for (k, v) in groups if v is not None)
-        tok = Token(*group)
+        k, v = next((k, v) for (k, v) in groups if v is not None)
+        end_idx = i + match.end()
+        l = string[:end_idx].count('\n')
+        c = string[:string[:end_idx].rfind('\n')].find(v)
+        tok = Token(type=k, string=v, line=l, col=c)
         yield tok
         i += match.end()
 
@@ -128,23 +131,23 @@ def create_indentation_tokens(lines):
     yield lines[0].content
     for i, j in pairs_upto(len(lines)):
         if lines[i].indent < lines[j].indent:
-            yield [Token('indent', ' '*lines[j].indent)] + lines[j].content
+            yield [Token('indent', ' '*lines[j].indent, line=j, col=0)] + lines[j].content
         elif lines[i].indent > lines[j].indent:
-            yield [Token('dedent', ' '*lines[j].indent)] + lines[j].content
+            yield [Token('dedent', ' '*lines[j].indent, line=j, col=0)] + lines[j].content
         else:
             yield lines[j].content
 
 @precompose(iter)
 def create_newline_tokens(lines):
-    for line in lines:
+    for i, line in enumerate(lines):
         yield from line
-        yield Token('newline', '\n')
+        yield Token('newline', '\n', line=i, col=0)
 
 def remove_remaining_whitespace(tokens):
     return (t for t in tokens if t.type != 'space')
 
 def add_eof_token(tokens):
-    return itertools.chain(tokens, (Token('EOF', ''),))
+    return itertools.chain(tokens, (Token('EOF', '', line=0, col=0),))
 
 @compose(list)
 def scan(keywords, tokens, input_text, *, add_eof=False):

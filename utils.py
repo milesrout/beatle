@@ -19,7 +19,13 @@ variable_content_tokens = [
 
 irrelevant_content_tokens = ['newline', 'indent', 'dedent', 'EOF']
 
-class Token(namedtuple('Token', 'type string')):
+class Token:
+    def __init__(self, type, string, line, col):
+        self.type = type
+        self.string = string
+        self.line = line
+        self.col = col
+
     def __repr__(self):
         if self.type in variable_content_tokens:
             return f'{{{self.type}={self.string!r}}}'
@@ -68,4 +74,5 @@ class ApeError(Exception):
     pass
 
 class ApeSyntaxError(ApeError):
-    pass
+    def __init__(self, line, col, msg):
+        self.message = f'{line}:{col}: {msg}'
