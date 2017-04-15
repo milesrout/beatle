@@ -48,17 +48,27 @@ def main():
         print('file:')
         print(input_text)
 
-    tokens = scanner.scan(args.keywords, args.tokens, input_text, add_eof=True)
+    try:
+        tokens = scanner.scan(args.keywords, args.tokens, input_text)
+    except ApeError as exc:
+        print('ERROR SCANNING')
+        print(exc.message)
+        raise
 
     if verbosity >= 2:
         print('tokens:')
         print(pformat(tokens))
 
-    ast = parser.file_input(tokens)
+    try:
+        ast = parser.file_input(tokens)
+    except ApeError as exc:
+        print('ERROR PARSING')
+        print(exc.message)
+        raise
 
     if verbosity >= 1:
         print('ast:')
-        print(pformat(ast))
+        print(to_json(ast))
 
 if __name__ == '__main__':
     main()

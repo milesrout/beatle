@@ -1,4 +1,5 @@
 import collections
+import contextlib
 import functools
 import itertools
 import re
@@ -24,58 +25,93 @@ class Parser:
     def __init__(self, tokens):
         self.tokens = list(tokens)
         self.index = 0
+        self.virtuals = [True]
+
+    @property
+    def hide_virtual_newlines(self):
+        return self.virtuals[-1]
+
+    @contextlib.contextmanager
+    def show_virtuals(self):
+        self.virtuals.append(False)
+        yield
+        self.virtuals.pop()
+
+    @contextlib.contextmanager
+    def hide_virtuals(self):
+        self.virtuals.append(True)
+        yield
+        self.virtuals.pop()
 
     def current_token(self):
+        if self.hide_virtual_newlines:
+            return next(tok for tok in self.tokens[self.index:] if not tok.type.startswith('virtual_'))
         return self.tokens[self.index]
+
+    def can_accept(self, actual, acceptable):
+        return (actual in acceptable
+             or actual == 'virtual_newline' and 'newline' in acceptable
+             or actual == 'virtual_indent' and 'indent' in acceptable
+             or actual == 'virtual_dedent' and 'dedent' in acceptable)
+
+    def next_token(self):
+        if self.hide_virtual_newlines:
+            while self.tokens[self.index].type.startswith('virtual_'):
+                self.index += 1
+            self.index += 1
+        else:
+            self.index += 1
 
     def get_token(self, type=None):
         tok = self.tokens[self.index]
         if type is not None and tok.type != type:
             raise ApeSyntaxError(tok.line, tok.col, f"expected '{type}', got {tok}")
-        self.index += 1
+        self.next_token()
         return tok
 
     def expect_get(self, *expected):
         actual = self.current_token()
-        if actual.type not in expected:
+        if not self.can_accept(actual.type, expected):
             friendly = '|'.join(expected)
-            raise ApeSyntaxError(tok.line, tok.col, f"expected '{friendly}', got {actual}")
+            raise ApeSyntaxError(actual.line, actual.col, f"expected '{friendly}', got {actual}")
         else:
-            self.index += 1
+            self.next_token()
             return actual
 
     def expect(self, expected):
         actual = self.current_token()
-        if actual.type != expected:
-            raise ApeSyntaxError(actual.line, actual.col, f"expected '{expected}', got {actual}")
+        if not self.can_accept(actual.type, [expected]):
+            lhs = self.tokens[self.index-5:self.index]
+            rhs = self.tokens[self.index+1:self.index+6]
+            raise ApeSyntaxError(actual.line, actual.col, f"expected '{expected}', got {actual} ...context: {lhs} >>>> {actual} <<< {lhs}")
         else:
-            self.index += 1
+            self.next_token()
 
     def raise_unexpected(self):
         tok = self.current_token()
-        rest = self.tokens[self.index-5:]
-        raise ApeSyntaxError(tok.line, tok.col, f'unexpected token: {tok} ...context: {rest}')
+        lhs = self.tokens[self.index-5:self.index]
+        rhs = self.tokens[self.index+1:self.index+6]
+        raise ApeSyntaxError(tok.line, tok.col, f'unexpected token: {tok} ...context: {lhs} >>>> {tok} <<<< {rhs}')
 
     def accept(self, *acceptable):
         actual = self.current_token().type
-        return actual in acceptable
+        return self.can_accept(actual, acceptable)
 
     def accept_next(self, acceptable):
         actual = self.current_token().type
-        if actual == acceptable:
-            self.index += 1
-        return actual == acceptable
+        if self.can_accept(actual, acceptable):
+            self.next_token()
+        return self.can_accept(actual, acceptable)
 
+    @compose(Statements)
     @compose(list)
     def file_input(self):
-        """Returns a list of statement objects"""
         while not self.accept_next('EOF'):
             if self.accept_next('newline'):
                 continue
             yield self.stmt()
 
     def single_input(self):
-        """Returns a list of statement objects"""
         if self.accept(*self.compound_tokens):
             stmt = self.compound_stmt()
             self.expect('newline')
@@ -91,6 +127,7 @@ class Parser:
         else:
             return self.simple_stmt()
 
+    @compose(Statements)
     @compose(list)
     def simple_stmt(self):
         yield self.small_stmt()
@@ -107,6 +144,20 @@ class Parser:
             if self.accept('semicolon', 'newline', 'equal'):
                 return
             yield self.test()
+
+    @compose(list)
+    def exprlist(self, *terminators):
+        if self.accept_next('asterisk'):
+            yield self.star_expr()
+        else:
+            yield self.expr()
+        while self.accept_next('comma'):
+            if self.accept(terminators):
+                return
+            if self.accept_next('asterisk'):
+                yield self.star_expr()
+            else:
+                yield self.expr()
 
     def small_stmt(self):
         if self.accept_next('del'):
@@ -134,7 +185,7 @@ class Parser:
         return self.expr_stmt()
 
     def del_stmt(self):
-        return DelStatement(self.exprlist())
+        return DelStatement(self.exprlist('semicolon', 'newline'))
 
     def pass_stmt(self):
         return PassStatement()
@@ -166,7 +217,8 @@ class Parser:
     def return_stmt(self):
         if self.accept('semicolon', 'newline'):
             return ReturnStatement(None)
-        return ReturnStatement(self.testlist('newline'))
+        return ReturnStatement(self.testlist())
+        #return ReturnStatement(self.testlist('newline'))
 
     def raise_expr(self):
         if self.accept('semicolon', 'newline'):
@@ -216,7 +268,7 @@ class Parser:
                 yield 1
 
     def import_as_name(self):
-        name = self.name()
+        name = [self.name()]
         if self.accept_next('as'):
             return ImportName(name, alias=self.name())
         return ImportName(name, alias=None)
@@ -248,6 +300,10 @@ class Parser:
             yield self.name()
 
     def expr_stmt(self):
+        with self.hide_virtuals():
+            return self._expr_stmt()
+
+    def _expr_stmt(self):
         tlse = self.testlist_star_expr()
         if self.accept_next('colon'):
             annotation = self.test()
@@ -318,11 +374,12 @@ class Parser:
             self.expect('colon')
             suite = self.suite()
             return (cond, suite)
-        branches = [cond_suite()]
+        branches = [IfBranch(*cond_suite())]
         while self.accept_next('elif'):
-            branches.append(cond_suite())
+            branches.append(ElifBranch(*cond_suite()))
         if self.accept_next('else'):
-            branches.append((None, self.suite()))
+            self.expect('colon')
+            branches.append(ElseBranch(self.suite()))
         return IfElifElseStatement(branches)
 
     def async_funcdef(self):
@@ -349,12 +406,12 @@ class Parser:
         return WhileStatement(cond, suite, alt=None)
 
     def for_stmt(self):
-        assignees = self.exprlist()
+        assignees = self.exprlist('in')
         self.expect('in')
         iterables = self.testlist()
         self.expect('colon')
         body = self.suite()
-        if self.expect_next('else'):
+        if self.accept_next('else'):
             self.expect('colon')
             alt = self.suite()
             return ForStatement(assignees, iterables, body, alt)
@@ -415,7 +472,7 @@ class Parser:
             if not self.accept_next('rparen'):
                 bases = self.arglist()
         self.expect('colon')
-        return ClassDef(name, bases, body=self.suite())
+        return ClassDefinition(name, bases, body=self.suite())
 
     def decorator(self):
         name = self.dotted_name()
@@ -438,11 +495,12 @@ class Parser:
         elif self.accept_next('def'):
             defn = self.funcdef()
         else:
-            raise_unexpected()
+            self.raise_unexpected()
         return Decorated(decorators=decorators, defn=defn)
 
     @compose(list)
     def decorators(self):
+        yield self.decorator()
         while self.accept_next('at'):
             yield self.decorator()
 
@@ -455,7 +513,7 @@ class Parser:
             return_annotation = None
         self.expect('colon')
         suite = self.suite()
-        return FuncDef(name, params, suite, return_annotation)
+        return FunctionDefinition(name, params, suite, return_annotation)
 
     def parameters(self):
         self.expect('lparen')
@@ -482,6 +540,7 @@ class Parser:
                 params.append(self.dtfpdef())
             else:
                 return params
+        return params
 
     def dtfpdef(self):
         name, annotation = self.tfpdef()
@@ -520,9 +579,31 @@ class Parser:
             self.expect('indent')
             stmts = []
             while not self.accept_next('dedent'):
+                if self.accept_next('newline'):
+                    continue
                 stmts.append(self.stmt())
             return Statements(stmts)
         return self.simple_stmt()
+
+    def lambda_expr(self):
+        if self.accept_next('def'):
+            return self.def_expr()
+        self.expect('lambda')
+        return self.lambdef()
+
+    def def_expr(self):
+        with self.show_virtuals():
+            return self._def_expr()
+
+    def _def_expr(self):
+        params = self.parameters()
+        if self.accept_next('arrow'):
+            return_annotation = self.test()
+        else:
+            return_annotation = None
+        self.expect('colon')
+        suite = self.suite()
+        return FunctionExpression(params, suite, return_annotation)
 
     def lambdef(self):
         if self.accept_next('colon'):
@@ -532,8 +613,12 @@ class Parser:
         return LambdaExpression(args=args, body=self.test())
 
     def test(self):
-        if self.accept_next('lambda'):
-            return self.lambdef()
+        with self.hide_virtuals():
+            return self._test()
+
+    def _test(self):
+        if self.accept('lambda', 'def'):
+            return self.lambda_expr()
         expr = self.or_test()
         if self.accept_next('if'):
             cond = self.or_expr()
@@ -777,8 +862,20 @@ class Parser:
             return self.rest_of_setmaker(StarArg(self.expr()))
         expr = self.test()
         if self.accept_next('colon'):
-            return self.rest_of_dictmaker(ColonPair(expr, self.test()))
+            return self.rest_of_dictmaker(DictPair(expr, self.test()))
         return self.rest_of_setmaker(expr)
+
+    def gen_expr_or_tuple_literal(self, expr):
+        if isinstance(expr, Literal):
+            return TupleLiteral(expr.exprs)
+        else:
+            return GeneratorExpression(expr.expr, expr.rest)
+
+    def list_comp_or_list_literal(self, expr):
+        if isinstance(expr, Literal):
+            return ListLiteral(expr.exprs)
+        else:
+            return ListComprehension(expr.expr, expr.rest)
 
     def atom(self):
         if self.accept_next('lparen'):
@@ -787,7 +884,7 @@ class Parser:
             if self.accept_next('yield'):
                 expr = self.yield_expr('rparen')
             else:
-                expr = GenExprOrTupleLiteral(self.testlist_comp('rparen'))
+                expr = self.gen_expr_or_tuple_literal(self.testlist_comp('rparen'))
             self.expect('rparen')
             return expr
         if self.accept_next('lbrack'):
@@ -795,7 +892,7 @@ class Parser:
                 return EmptyListExpression()
             expr = self.testlist_comp('rbrack')
             self.expect('rbrack')
-            return ListCompOrListLiteral(expr)
+            return self.list_comp_or_list_literal(expr)
         if self.accept_next('lbrace'):
             if self.accept_next('rbrace'):
                 return EmptyDictExpression()
@@ -810,11 +907,11 @@ class Parser:
             return self.string()
         if self.accept_next('ellipsis'):
             return EllipsisExpression()
-        if self.accept_next('None'):
+        if self.accept_next('none'):
             return NoneExpression()
-        if self.accept_next('True'):
+        if self.accept_next('true'):
             return TrueExpression()
-        if self.accept_next('False'):
+        if self.accept_next('false'):
             return FalseExpression()
         self.raise_unexpected()
 
@@ -830,7 +927,7 @@ class Parser:
     def comp_for_clause(self):
         is_async = self.accept_next('async')
         self.expect('for')
-        exprs = self.exprlist()
+        exprs = self.exprlist('in')
         self.expect('in')
         iterable = self.or_test()
         return CompForClause(is_async=is_async, exprs=exprs, iterable=iterable)

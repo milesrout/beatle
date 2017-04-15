@@ -11,7 +11,16 @@ def hello(world):
         pass; \
                 pass
         if 0 < 0.05 <= 1:
-            print('foo',
-                5)
+            print('foo', 5)
         pass
     foo()
+
+def foo():
+    print_hello = (def(a, b, c):
+        a; b; c
+        print('Hello',
+              (def(): \
+                  (print(1, 2, 3), print(a, b, c))
+              ),
+              'World')
+    )
