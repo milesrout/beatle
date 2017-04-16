@@ -83,7 +83,7 @@ class Parser:
         if not self.can_accept(actual.type, [expected]):
             lhs = self.tokens[self.index-5:self.index]
             rhs = self.tokens[self.index+1:self.index+6]
-            raise ApeSyntaxError(actual.line, actual.col, f"expected '{expected}', got {actual} ...context: {lhs} >>>> {actual} <<< {lhs}")
+            raise ApeSyntaxError(actual.line, actual.col, f"expected '{expected}', got {actual} ...context: {lhs} >>>> {actual} <<<< {rhs}")
         else:
             self.next_token()
 
@@ -101,7 +101,7 @@ class Parser:
         actual = self.current_token().type
         if self.can_accept(actual, acceptable):
             self.next_token()
-        return self.can_accept(actual, acceptable)
+        return self.can_accept(actual, [acceptable])
 
     @compose(Statements)
     @compose(list)

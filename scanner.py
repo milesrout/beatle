@@ -186,9 +186,16 @@ class Scanner:
             yield self.make_token('newline', '\n', pos=b.pos - 1)
 
     def remove_remaining_whitespace(self, tokens):
-        return (t for t in tokens if t.type != 'space')
+        return [t for t in tokens if t.type != 'space']
 
     def add_eof_token(self, tokens):
+        indents = [t for t in tokens if t.type == 'indent']
+        dedents = [t for t in tokens if t.type == 'dedent']
+        print(len(indents), len(dedents))
+        if len(indents) != len(dedents):
+            num_to_add = len(indents) - len(dedents)
+            final_indents = indents[-num_to_add:]
+            print(final_indents)
         eof = self.make_token('EOF', '', pos=len(self.input_text))
         return itertools.chain(tokens, (eof,))
 

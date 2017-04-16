@@ -9,7 +9,7 @@ class Expression:
     pass
 
 def to_json(x):
-    return MyJSONEncoder(indent=2).encode(x)
+    return MyJSONEncoder(indent=None).encode(x)
 
 class MyJSONEncoder(json.JSONEncoder):
     def default(self, o):
