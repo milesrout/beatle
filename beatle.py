@@ -86,8 +86,8 @@ def main():
         tokens = scanner.scan(args.keywords, args.tokens, input_text)
     except ApeError as exc:
         print('ERROR SCANNING')
-        print(exc.message)
-        raise
+        print(exc.format_with_context(input_text))
+        return
 
     if verbosity >= 2:
         print('tokens:')
@@ -98,10 +98,10 @@ def main():
 
     try:
         ast = parser.file_input(tokens)
-    except ApeError as exc:
+    except ApeSyntaxError as exc:
         print('ERROR PARSING')
-        print(exc.message)
-        raise
+        print(exc.format_with_context(input_text))
+        return
 
     if verbosity >= 1:
         print('ast:')

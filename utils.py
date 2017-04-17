@@ -88,3 +88,13 @@ class ApeError(Exception):
 class ApeSyntaxError(ApeError):
     def __init__(self, line, col, msg):
         self.message = f'{line}:{col}: {msg}'
+        self.line = line
+        self.col = col
+
+    def format_with_context(self, input_text):
+        '''Format the error message using the original input text.'''
+        line = input_text.splitlines()[self.line - 1]
+        stripped = line.lstrip()
+        wspace = len(line) - len(stripped)
+        pointer = (' ' * (self.col - wspace - 1)) + '^'
+        return '{}\n{}\n{}'.format(self.message, stripped, pointer)
