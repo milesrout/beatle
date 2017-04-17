@@ -12,7 +12,7 @@ from itertools import groupby
 
 from utils import *
 
-def is_newline(tok) -> bool:
+def token_is_newline(tok) -> bool:
     return tok.type == 'space' and tok.string == '\n'
 
 def is_space(tok) -> bool:
@@ -77,8 +77,8 @@ class Scanner:
     def split_into_physical_lines(self, tokens):
         """Split the list of tokens on newline tokens"""
         pos = 0
-        for k, group in groupby(tokens, is_newline):
-            if k:
+        for is_newline, group in groupby(tokens, token_is_newline):
+            if is_newline:
                 for i in range(len(list(group)) - 1):
                     pos += 1
                     yield PhysicalLine(pos, [])
