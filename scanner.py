@@ -89,13 +89,18 @@ class Scanner:
                 pos = g[-1].pos + len(g[-1].string)
         yield PhysicalLine(pos, [])
 
-    def separate_indent_prefix(self, physical_lines, regexp=re.compile(r'(\s*)(.*)')):
+    def separate_indent_prefix(self, physical_lines):
         for pos, line in physical_lines:
             line1, line2 = itertools.tee(line)
             prefix = list(itertools.takewhile(is_space, line1))
             rest = list(itertools.dropwhile(is_space, line2))
             level = sum(count_indent(tok) for tok in prefix)
             yield IndentLine(indent=level, pos=pos, content=rest)
+
+    def remove_blank_lines(self, indented_lines):
+        for line in indented_lines:
+            if not all(is_space(tok) for tok in line.content):
+                yield line
 
     def join_continuation_backslashes(self, lines):
         """Merge explicit continuation lines"""
@@ -161,6 +166,10 @@ class Scanner:
                 logical_line = []
         if len(bracket_stack) != 0:
             raise ApeSyntaxError(f'mismatched bracket: {bracket_stack[-1]}')
+
+    @compose(list)
+    def add_blank_line(self, lines):
+        return itertools.chain(lines, [IndentLine(indent=0, pos=len(self.input_text), content=[])])
 
     def create_indentation_tokens(self, lines):
         yield LogicalLine(pos=lines[0].pos,
@@ -252,8 +261,10 @@ class Scanner:
         lexing_steps = [
             self.split_into_physical_lines,
             self.separate_indent_prefix,
+            self.remove_blank_lines,
             self.join_continuation_backslashes,
             self.join_implicit_continuation_lines,
+            self.add_blank_line,
             self.create_indentation_tokens,
             self.add_eof_line,
             self.create_newline_tokens,
