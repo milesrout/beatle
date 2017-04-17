@@ -73,8 +73,6 @@ def main():
     if 'PARSE' in args.phases and 'SCAN' not in args.phases:
         print('Unworkable --phase arguments: PARSE phase requires SCAN phase')
 
-    print(args.phases)
-
     input_text = args.input.read()
 
     if verbosity >= 2:

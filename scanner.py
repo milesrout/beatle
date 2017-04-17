@@ -145,7 +145,7 @@ class Scanner:
                     bracket_stack.append(token.type)
                 elif token.type in ['rparen', 'rbrack', 'rbrace']:
                     if token.type[1:] != bracket_stack[-1][1:]:
-                        raise ApeError('mismatched brackets: {l} and {r}'.format(
+                        raise ApeSyntaxError('mismatched brackets: {l} and {r}'.format(
                             l=bracket_stack[-1], r=token.type))
                     bracket_stack.pop()
             logical_line.append(line)
@@ -159,13 +159,13 @@ class Scanner:
                         list(self.add_virtual_newlines(logical_line)))
                 logical_line = []
         if len(bracket_stack) != 0:
-            raise ApeError(f'mismatched bracket: {bracket_stack[-1]}')
+            raise ApeSyntaxError(f'mismatched bracket: {bracket_stack[-1]}')
 
     def create_indentation_tokens(self, lines):
         yield LogicalLine(pos=lines[0].pos,
                           content=lines[0].content)
         for previous, line in nviews(lines, 2):
-            spaces = ' ' * line.indent
+            spaces = ' ' * abs(line.indent - previous.indent)
             if previous.indent < line.indent:
                 token = self.make_token('indent', spaces, line.pos)
                 content = [token] + line.content
@@ -185,17 +185,32 @@ class Scanner:
             yield from a.content
             yield self.make_token('newline', '\n', pos=b.pos - 1)
 
+    def split_dedent_tokens(self, tokens):
+        indent_stack = []
+        for token in tokens:
+            if token.type == 'indent':
+                indent_stack.append(token)
+            elif token.type == 'dedent':
+                matching = indent_stack.pop()
+                diff = len(token.string) - len(matching.string)
+                while diff != 0:
+                    if diff < 0:
+                        raise ApeSyntaxError(
+                            line=token.line,
+                            col=token.col,
+                            msg=f'mismatched indent levels: {matching} and {token}')
+                    else:
+                        yield self.make_token('dedent', matching.string, token.pos)
+                        token = self.make_token('dedent', diff * ' ', token.pos)
+                        matching = indent_stack.pop()
+                        diff = len(token.string) - len(matching.string)
+            yield token
+
+
     def remove_remaining_whitespace(self, tokens):
         return [t for t in tokens if t.type != 'space']
 
     def add_eof_token(self, tokens):
-        indents = [t for t in tokens if t.type == 'indent']
-        dedents = [t for t in tokens if t.type == 'dedent']
-        print(len(indents), len(dedents))
-        if len(indents) != len(dedents):
-            num_to_add = len(indents) - len(dedents)
-            final_indents = indents[-num_to_add:]
-            print(final_indents)
         eof = self.make_token('EOF', '', pos=len(self.input_text))
         return itertools.chain(tokens, (eof,))
 
@@ -211,20 +226,19 @@ class Scanner:
         class Token(namedtuple('Token', 'type string pos')):
             '''Essentially one giant hack'''
             def __repr__(this):
+                if this.type in ['dedent', 'indent']:
+                    return f'({this.line}:{this.col}:{this.type}:{len(this.string)})'
                 return f'({this.line}:{this.col}:{this.type}:{this.string!r})'
             def __iter__(this):
                 yield this.type
                 yield this.string
             @property
             def line(this):
-                return self.input_text[:this.pos].count('\n')
+                return self.input_text[:this.pos].count('\n') + 1
             @property
             def col(this):
                 before = self.input_text[:this.pos].rfind('\n')
-                if before == -1:
-                    return this.pos
-                else:
-                    return this.pos - before 
+                return this.pos - before
         self.make_token = Token
 
     def __call__(self):
@@ -241,6 +255,7 @@ class Scanner:
             self.create_indentation_tokens,
             self.add_eof_line,
             self.create_newline_tokens,
+            self.split_dedent_tokens,
             self.remove_remaining_whitespace,
             self.add_eof_token,
         ]
