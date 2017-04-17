@@ -38,7 +38,5 @@ def foo():
         a; b; c
         print('Hello',
               (def(): \
-                  (print(1, 2, 3), print(a, b, c))
-              ),
-              'World')
-    )
+                  (print(1, 2, 3), print(a, b, c))),
+              'World'))

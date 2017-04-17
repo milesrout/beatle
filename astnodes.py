@@ -86,6 +86,10 @@ class RaiseStatement(Expression):
         self.exprs = exprs
         self.original = original
 
+class YieldExpression(Expression):
+    def __init__(self, exprs):
+        self.exprs = exprs
+
 class DelStatement(Expression):
     def __init__(self, exprs):
         self.exprs = exprs
@@ -157,6 +161,11 @@ class ClassDefinition(Expression):
     def __init__(self, name, bases, body):
         self.name = name
         self.bases = bases
+        self.body = body
+
+class WithStatement(Expression):
+    def __init__(self, items, body):
+        self.items = items
         self.body = body
 
 class AsyncFunctionStatement(Expression):
@@ -274,14 +283,9 @@ class ArithExpression(Expression):
         self.left = left
         self.right = right
 
-class TermExpression(Expression):
-    def __init__(self, op, left, right):
+class UnaryExpression(Expression):
+    def __init__(self, op, expr):
         self.op = op
-        self.left = left
-        self.right = right
-
-class FactorExpression(Expression):
-    def __init__(self, expr):
         self.expr = expr
 
 class PowerExpression(Expression):
@@ -365,7 +369,8 @@ class KeywordArg(Expression):
         self.expr = expr
 
 class CompForArg(Expression):
-    def __init__(self, comp):
+    def __init__(self, keyword, comp):
+        self.keyword = keyword
         self.comp = comp
 
 class CompForClause(Expression):

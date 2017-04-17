@@ -591,6 +591,7 @@ class Parser:
         self.expect('lambda')
         return self.lambdef()
 
+
     def def_expr(self):
         with self.show_virtuals():
             return self._def_expr()
@@ -607,14 +608,26 @@ class Parser:
 
     def lambdef(self):
         if self.accept_next('colon'):
-            return Lambda(args=[], body=self.test())
+            return LambdaExpression(args=[], body=self.test())
         args = self.varparamslist()
         self.expect('colon')
         return LambdaExpression(args=args, body=self.test())
 
+    def lambda_nocond(self):
+        if self.accept_next('colon'):
+            return LambdaExpression(args=[], body=self.test_nocond())
+        args = self.varparamslist()
+        self.expect('colon')
+        return LambdaExpression(args=args, body=self.test_nocond())
+
     def test(self):
         with self.hide_virtuals():
             return self._test()
+
+    def test_nocond(self):
+        if self.accept('lambda'):
+            return self.lambda_nocond()
+        return self.or_test()
 
     def _test(self):
         if self.accept('lambda', 'def'):
@@ -706,12 +719,12 @@ class Parser:
     def term(self):
         factor = self.factor()
         if self.accept('asterisk', 'at', 'div', 'mod', 'truediv'):
-            return TermExpression(self.get_token().type, factor, self.term())
+            return ArithExpression(self.get_token().type, factor, self.term())
         return factor
 
     def factor(self):
         if self.accept('plus', 'minus', 'tilde'):
-            return FactorExpression(self.get_token().type, self.factor())
+            return UnaryExpression(self.get_token().type, self.factor())
         return self.power()
 
     def power(self):
@@ -888,7 +901,7 @@ class Parser:
             self.expect('rparen')
             return expr
         if self.accept_next('lbrack'):
-            if self.accept_next('rparen'):
+            if self.accept_next('rbrack'):
                 return EmptyListExpression()
             expr = self.testlist_comp('rbrack')
             self.expect('rbrack')
