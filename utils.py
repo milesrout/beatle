@@ -21,8 +21,12 @@ pformat = pprint.PrettyPrinter(indent=4, compact=True).pformat
 
 variable_content_tokens = [
     'id',
+    'fs_string',
+    'fd_string',
     's_string',
     'd_string',
+    'fsss_string',
+    'fddd_string',
     'sss_string',
     'ddd_string',
     'pointfloat',

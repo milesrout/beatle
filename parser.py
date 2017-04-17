@@ -20,7 +20,7 @@ class Parser:
     bases = 'decimal hexadecimal octal binary'.split()
     int_tokens = [f'{base}_int' for base in bases]
     float_tokens = 'pointfloat expfloat'.split()
-    string_tokens = [f'{x}_string' for x in 's d sss ddd'.split()]
+    string_tokens = [f'{x}_string' for x in 'fs fd fsss fddd s d sss ddd'.split()]
 
     def __init__(self, tokens):
         self.tokens = list(tokens)
@@ -99,7 +99,7 @@ class Parser:
 
     def accept_next(self, acceptable):
         actual = self.current_token().type
-        if self.can_accept(actual, acceptable):
+        if self.can_accept(actual, [acceptable]):
             self.next_token()
         return self.can_accept(actual, [acceptable])
 

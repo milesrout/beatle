@@ -47,6 +47,7 @@ class Scanner:
 
         patterns = (f'(?P<{tok}>{pat})' for tok,pat in tokens.items())
         regex = '|'.join(patterns)
+        print(regex)
         return re.compile(regex)
 
     @compose(list)
@@ -206,7 +207,6 @@ class Scanner:
                         diff = len(token.string) - len(matching.string)
             yield token
 
-
     def remove_remaining_whitespace(self, tokens):
         return [t for t in tokens if t.type != 'space']
 
@@ -228,6 +228,8 @@ class Scanner:
             def __repr__(this):
                 if this.type in ['dedent', 'indent']:
                     return f'({this.line}:{this.col}:{this.type}:{len(this.string)})'
+                if this.type not in variable_content_tokens:
+                    return f'({this.line}:{this.col}:{this.type})'
                 return f'({this.line}:{this.col}:{this.type}:{this.string!r})'
             def __iter__(this):
                 yield this.type

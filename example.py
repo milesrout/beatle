@@ -6,6 +6,20 @@ from x import (a, b, c, d)
 import a, b, z, d, fe, q
 import a.ce, efa.f, ae.e
 
+'''hello!'''
+"""hello!
+My name is Miles
+This is one big string"""
+
+"""'"""
+""""""
+
+"";""
+
+if a == 0 or b == 1:
+    if b == 0:
+        print(a, b)
+
 def hello(world):
     def foo():
         pass; \
