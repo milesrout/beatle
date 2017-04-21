@@ -30,6 +30,8 @@ def parse_args():
                         help='a file with a list of tokens and their regexes')
     parser.add_argument('--keywords', type=argparse.FileType('r'), default=open('keywords.json'),
                         help='a file with a list of literal tokens (keywords)')
+    parser.add_argument('-s', '--stacktrace', action='store_true', default=False,
+                        help='enable printing of stacktraces on errors that are potentially user errors')
 
     PHASES = ['SCAN', 'PARSE']
     phases = parser.add_argument_group(title='phases of compilation')
@@ -86,7 +88,7 @@ def main():
         tokens = scanner.scan(args.keywords, args.tokens, input_text)
     except ApeError as exc:
         print('ERROR SCANNING')
-        print(exc.format_with_context(input_text))
+        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
         return
 
     if verbosity >= 2:
@@ -100,7 +102,7 @@ def main():
         ast = parser.file_input(tokens)
     except ApeSyntaxError as exc:
         print('ERROR PARSING')
-        print(exc.format_with_context(input_text))
+        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
         return
 
     if verbosity >= 1:

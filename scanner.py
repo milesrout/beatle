@@ -12,6 +12,7 @@ from itertools import groupby
 
 from utils import *
 
+VirtualLevel = namedtuple('VirtualLevel', 'token indent')
 def token_is_newline(tok) -> bool:
     return tok.type == 'space' and tok.string == '\n'
 
@@ -21,9 +22,6 @@ def is_space(tok) -> bool:
 def flatten(indent, pos, group):
     return IndentLine(indent=indent, pos=pos,
             content=list(itertools.chain.from_iterable(group)))
-
-def join(iterables):
-    return (x for y in iterables for x in y)
 
 def count_indent(ch):
     if ch.string == ' ':
@@ -123,50 +121,6 @@ class Scanner:
             raise RuntimeError('cannot end with a continuation line: {}'.format(
                 group))
 
-    @compose(itertools.chain.from_iterable)
-    def add_virtual_newlines(self, lines):
-        for i, line in enumerate(lines):
-            previous_line = lines[i-1] if i != 0 else None
-            if previous_line is not None:
-                if previous_line.indent < line.indent:
-                    token = self.make_token('virtual_indent', '', line.pos)
-                    yield [token]
-                elif previous_line.indent > line.indent:
-                    token = self.make_token('virtual_dedent', '', line.pos)
-                    yield [token]
-            yield line.content
-            next_line = lines[i+1] if i < len(lines) - 1 else None
-            if next_line is not None:
-                pos = next_line.pos - 1
-                yield [self.make_token('virtual_newline', '\n', pos)]
-
-    @compose(list)
-    def join_implicit_continuation_lines(self, lines):
-        """Merge implicit continuation lines"""
-        bracket_stack = []
-        logical_line = []
-        for line in lines:
-            for token in line.content:
-                if token.type in ['lparen', 'lbrack', 'lbrace']:
-                    bracket_stack.append(token.type)
-                elif token.type in ['rparen', 'rbrack', 'rbrace']:
-                    if token.type[1:] != bracket_stack[-1][1:]:
-                        raise ApeSyntaxError('mismatched brackets: {l} and {r}'.format(
-                            l=bracket_stack[-1], r=token.type))
-                    bracket_stack.pop()
-            logical_line.append(line)
-            if len(bracket_stack) == 0:
-                if len(logical_line) == 1:
-                    yield logical_line[0]
-                else:
-                    yield IndentLine(
-                        logical_line[0].indent,
-                        logical_line[0].pos,
-                        list(self.add_virtual_newlines(logical_line)))
-                logical_line = []
-        if len(bracket_stack) != 0:
-            raise ApeSyntaxError(f'mismatched bracket: {bracket_stack[-1]}')
-
     @compose(list)
     def add_blank_line(self, lines):
         return itertools.chain(lines, [IndentLine(indent=0, pos=len(self.input_text), content=[])])
@@ -195,6 +149,64 @@ class Scanner:
             yield from a.content
             yield self.make_token('newline', '\n', pos=b.pos - 1)
 
+
+    def annotate_and_split_control_tokens(self, tokens):
+        indent = 0
+        reduction = 0
+        stack = [VirtualLevel(None, 0)]
+        for token in tokens:
+            if token.type in ['lbrack', 'lbrace', 'lparen']:
+                stack.append(VirtualLevel(token, indent))
+                yield token
+            elif token.type == 'indent':
+                indent += len(token.string)
+                yield self.make_token(token.type, token.string, token.pos, len(stack) - 1)
+            elif token.type == 'newline':
+                yield self.make_token(token.type, token.string, token.pos, len(stack) - 1)
+            elif token.type == 'dedent':
+                amount = len(token.string)
+                if amount > reduction:
+                    amount -= reduction
+                    reduction = 0
+                else:
+                    reduction -= amount
+                    continue
+                indent -= amount
+                yield self.make_token(type='dedent',
+                                      string=amount * ' ',
+                                      pos=token.pos,
+                                      virtual=len(stack) - 1)
+            elif token.type in ['rparen', 'rbrack', 'rbrace']:
+                # this ensures that you can write things like
+                #     (def foo():
+                #         bar())
+                # instead of having to write
+                #     (def foo():
+                #         bar()
+                #     )
+                # (which is still legal).
+                yield self.make_token('newline', '\n', token.pos, len(stack) - 1)
+
+                matching = stack.pop()
+                if token.type[1:] != matching.token.type[1:]:
+                    raise ApeSyntaxError('mismatched brackets: {l} and {r}'.format(
+                        l=stack[-1].token, r=token))
+                diff = indent - matching.indent
+                if diff != 0:
+                    if diff > 0:
+                        yield self.make_token('dedent', ' ' * diff,
+                            pos=token.pos, virtual=len(stack))
+                        indent = matching.indent
+                        reduction += diff
+                    else:
+                        raise ApeSyntaxError(
+                            line=token.line,
+                            col=token.col,
+                            msg=f'mismatched indent levels: {matching} and {token}')
+                yield token
+            else:
+                yield token
+
     def split_dedent_tokens(self, tokens):
         indent_stack = []
         for token in tokens:
@@ -205,17 +217,26 @@ class Scanner:
                 diff = len(token.string) - len(matching.string)
                 while diff != 0:
                     if diff < 0:
-                        raise ApeSyntaxError(
-                            line=token.line,
-                            col=token.col,
-                            msg=f'mismatched indent levels: {matching} and {token}')
+                        indent_stack.append(self.make_token(
+                            type=matching.type,
+                            string=' ' * -diff,
+                            pos=matching.pos,
+                            virtual=matching.virtual))
+                        break
                     else:
-                        yield self.make_token('dedent', matching.string, token.pos)
+                        yield self.make_token(
+                            type='dedent',
+                            string=matching.string,
+                            pos=token.pos,
+                            virtual=matching.virtual)
                         token = self.make_token('dedent', diff * ' ', token.pos)
                         matching = indent_stack.pop()
                         diff = len(token.string) - len(matching.string)
             yield token
+        if len(indent_stack) != 0:
+            raise ApeSyntaxError(f'mismatched indents somehow: {indent_stack[-1]}')
 
+    @compose(list)
     def remove_remaining_whitespace(self, tokens):
         return [t for t in tokens if t.type != 'space']
 
@@ -232,14 +253,27 @@ class Scanner:
     def __init__(self, keywords, tokens, input_text):
         self.pattern = self.make_regex(keywords, tokens)
         self.input_text = input_text
-        class Token(namedtuple('Token', 'type string pos')):
+        class Token(namedtuple('Token', 'type string pos virtual')):
             '''Essentially one giant hack'''
-            def __repr__(this):
+            def extra_repr_content(this):
                 if this.type in ['dedent', 'indent']:
-                    return f'({this.line}:{this.col}:{this.type}:{len(this.string)})'
-                if this.type not in variable_content_tokens:
-                    return f'({this.line}:{this.col}:{this.type})'
-                return f'({this.line}:{this.col}:{this.type}:{this.string!r})'
+                    if this.virtual:
+                        v = 'X' * this.virtual
+                        return f'{len(this.string)}:{v}'
+                    return f'{len(this.string)}'
+                if this.type == 'newline' and this.virtual:
+                    v = 'X' * this.virtual
+                    return f'{v}'
+                if this.type in variable_content_tokens:
+                    v = 'X' * this.virtual
+                    return f'{this.string!r}:{v}'
+                v = 'X' * this.virtual
+                return f'{v}'
+            def __repr__(this):
+                extra = this.extra_repr_content()
+                if extra is not None:
+                    return f'({this.line}:{this.col}:{this.type}:{extra})'
+                return f'({this.line}:{this.col}:{this.type})'
             def __iter__(this):
                 yield this.type
                 yield this.string
@@ -250,7 +284,10 @@ class Scanner:
             def col(this):
                 before = self.input_text[:this.pos].rfind('\n')
                 return this.pos - before
-        self.make_token = Token
+        self.make_token_impl = Token
+
+    def make_token(self, type, string, pos, virtual=0):
+        return self.make_token_impl(type, string, pos, virtual)
 
     def __call__(self):
         tokens = self.lex()
@@ -263,11 +300,11 @@ class Scanner:
             self.separate_indent_prefix,
             self.remove_blank_lines,
             self.join_continuation_backslashes,
-            self.join_implicit_continuation_lines,
             self.add_blank_line,
             self.create_indentation_tokens,
             self.add_eof_line,
             self.create_newline_tokens,
+            self.annotate_and_split_control_tokens,
             self.split_dedent_tokens,
             self.remove_remaining_whitespace,
             self.add_eof_token,

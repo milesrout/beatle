@@ -78,6 +78,10 @@ class StarStarKwparam(Expression):
         self.name = name
 
 class Statements(Expression):
+    def __new__(self, stmts):
+        if len(stmts) == 1:
+            return stmts[0]
+        return super().__new__(self)
     def __init__(self, stmts):
         self.stmts = stmts
 

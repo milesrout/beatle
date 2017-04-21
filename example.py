@@ -24,19 +24,27 @@ if a == 0 or b == 1:
     if b == 0:
         print(a, b)
 
-def hello(world):
-    def foo():
-        pass; \
-                pass
-        if 0 < 0.05 <= 1:
-            print('foo', 5)
-        pass
-    foo()
+class X:
+    def hello(world):
+        def foo():
+            pass; \
+                    pass
+            if 0 < 0.05 <= 1:
+                return print(
+                   'Hello!',
+                   'World!',
+                   'Yeah!')
 
 def foo():
     print_hello = (def(a, b, c):
         a; b; c
+        print(def():
+               print()
+               print(
+                  (1, 2, 3),
+                (a, b, c)))
         print('Hello',
-              (def(): \
-                  (print(1, 2, 3), print(a, b, c))),
-              'World'))
+              (def():
+                  print(1, 2, 3); print(a, b, c)
+                  pass),
+         'World'))

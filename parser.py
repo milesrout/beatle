@@ -25,65 +25,61 @@ class Parser:
     def __init__(self, tokens):
         self.tokens = list(tokens)
         self.index = 0
-        self.virtuals = [True]
-
-    @property
-    def hide_virtual_newlines(self):
-        return self.virtuals[-1]
+        self.virtuals = 0
+        self.brackets = 0
 
     @contextlib.contextmanager
     def show_virtuals(self):
-        self.virtuals.append(False)
+        old = self.virtuals
+        self.virtuals = self.brackets
         yield
-        self.virtuals.pop()
-
-    @contextlib.contextmanager
-    def hide_virtuals(self):
-        self.virtuals.append(True)
-        yield
-        self.virtuals.pop()
+        self.virtuals = old
 
     def current_token(self):
-        if self.hide_virtual_newlines:
-            return next(tok for tok in self.tokens[self.index:] if not tok.type.startswith('virtual_'))
-        return self.tokens[self.index]
+        indices = list(range(self.index, len(self.tokens)))
+        token = next(self.tokens[i] for i in indices
+                     if self.tokens[i].virtual is None
+                     or self.tokens[i].virtual <= self.virtuals)
+        return token
 
     def can_accept(self, actual, acceptable):
-        return (actual in acceptable
-             or actual == 'virtual_newline' and 'newline' in acceptable
-             or actual == 'virtual_indent' and 'indent' in acceptable
-             or actual == 'virtual_dedent' and 'dedent' in acceptable)
+        return actual in acceptable
+
+    def consume_token(self):
+        token = self.tokens[self.index]
+        if token.type in ['lparen', 'lbrace', 'lbrack']:
+            self.brackets += 1
+        elif token.type in ['rparen', 'rbrace', 'rbrack']:
+            self.brackets -= 1
+        self.index += 1
 
     def next_token(self):
-        if self.hide_virtual_newlines:
-            while self.tokens[self.index].type.startswith('virtual_'):
-                self.index += 1
-            self.index += 1
-        else:
-            self.index += 1
+        while self.tokens[self.index].virtual > self.virtuals:
+            self.consume_token()
+        self.consume_token()
 
     def get_token(self, type=None):
         tok = self.tokens[self.index]
         if type is not None and tok.type != type:
-            raise ApeSyntaxError(tok.line, tok.col, f"expected '{type}', got {tok}")
+            raise ApeSyntaxError(tok.line, tok.col, f"{self.virtuals} - expected '{type}', got {tok}")
         self.next_token()
         return tok
 
     def expect_get(self, *expected):
         actual = self.current_token()
-        if not self.can_accept(actual.type, expected):
+        if actual.type not in expected:
             friendly = '|'.join(expected)
-            raise ApeSyntaxError(actual.line, actual.col, f"expected '{friendly}', got {actual}")
+            raise ApeSyntaxError(actual.line, actual.col, f"{self.virtuals} - expected '{friendly}', got {actual}")
         else:
             self.next_token()
             return actual
 
     def expect(self, expected):
         actual = self.current_token()
-        if not self.can_accept(actual.type, [expected]):
+        if actual.type != expected:
             lhs = self.tokens[self.index-5:self.index]
             rhs = self.tokens[self.index+1:self.index+6]
-            raise ApeSyntaxError(actual.line, actual.col, f"expected '{expected}', got {actual} ...context: {lhs} >>>> {actual} <<<< {rhs}")
+            raise ApeSyntaxError(actual.line, actual.col, f"{self.virtuals} - expected '{expected}', got {actual} ...context: {lhs} >>>> {actual} <<<< {rhs}")
         else:
             self.next_token()
 
@@ -91,17 +87,17 @@ class Parser:
         tok = self.current_token()
         lhs = self.tokens[self.index-5:self.index]
         rhs = self.tokens[self.index+1:self.index+6]
-        raise ApeSyntaxError(tok.line, tok.col, f'unexpected token: {tok} ...context: {lhs} >>>> {tok} <<<< {rhs}')
+        raise ApeSyntaxError(tok.line, tok.col, f'{self.virtuals} - unexpected token: {tok} ...context: {lhs} >>>> {tok} <<<< {rhs}')
 
     def accept(self, *acceptable):
         actual = self.current_token().type
-        return self.can_accept(actual, acceptable)
+        return actual in acceptable
 
     def accept_next(self, acceptable):
         actual = self.current_token().type
-        if self.can_accept(actual, [acceptable]):
+        if actual == acceptable:
             self.next_token()
-        return self.can_accept(actual, [acceptable])
+        return actual == acceptable
 
     @compose(Statements)
     @compose(list)
@@ -300,10 +296,6 @@ class Parser:
             yield self.name()
 
     def expr_stmt(self):
-        with self.hide_virtuals():
-            return self._expr_stmt()
-
-    def _expr_stmt(self):
         tlse = self.testlist_star_expr()
         if self.accept_next('colon'):
             annotation = self.test()
@@ -472,7 +464,8 @@ class Parser:
             if not self.accept_next('rparen'):
                 bases = self.arglist()
         self.expect('colon')
-        return ClassDefinition(name, bases, body=self.suite())
+        body = self.suite()
+        return ClassDefinition(name, bases, body)
 
     def decorator(self):
         name = self.dotted_name()
@@ -591,7 +584,6 @@ class Parser:
         self.expect('lambda')
         return self.lambdef()
 
-
     def def_expr(self):
         with self.show_virtuals():
             return self._def_expr()
@@ -620,16 +612,12 @@ class Parser:
         self.expect('colon')
         return LambdaExpression(args=args, body=self.test_nocond())
 
-    def test(self):
-        with self.hide_virtuals():
-            return self._test()
-
     def test_nocond(self):
         if self.accept('lambda'):
             return self.lambda_nocond()
         return self.or_test()
 
-    def _test(self):
+    def test(self):
         if self.accept('lambda', 'def'):
             return self.lambda_expr()
         expr = self.or_test()
@@ -909,7 +897,9 @@ class Parser:
         if self.accept_next('lbrace'):
             if self.accept_next('rbrace'):
                 return EmptyDictExpression()
-            return self.dictorsetmaker()
+            dictorset = self.dictorsetmaker()
+            self.expect('rbrace')
+            return dictorset
         if self.accept('id'):
             return self.name()
         if self.accept(*self.int_tokens):

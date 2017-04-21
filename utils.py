@@ -1,6 +1,7 @@
 import functools
 import json
 import pprint
+import traceback
 
 from collections import namedtuple
 from itertools import tee, zip_longest
@@ -82,19 +83,32 @@ def tap(f):
         return inner
     return outer
 
-class ApeError(Exception):
-    pass
+def format_exception(exc):
+    tb = exc.__traceback__
+    cls = exc.__class__
+    return traceback.format_exception(cls, exc, tb)
 
-class ApeSyntaxError(ApeError):
+class ApeError(Exception):
     def __init__(self, line, col, msg):
         self.message = f'{line}:{col}: {msg}'
         self.line = line
         self.col = col
 
-    def format_with_context(self, input_text):
-        '''Format the error message using the original input text.'''
-        line = input_text.splitlines()[self.line - 1]
-        stripped = line.lstrip()
-        wspace = len(line) - len(stripped)
-        pointer = (' ' * (self.col - wspace - 1)) + '^'
-        return '{}\n{}\n{}'.format(self.message, stripped, pointer)
+    def format_with_context(self, input_text, stacktrace=False):
+        try:
+            line = input_text.splitlines()[self.line - 1]
+        except IndexError:
+            context = ''
+        else:
+            stripped = line.lstrip()
+            wspace = len(line) - len(stripped)
+            pointer = (' ' * (self.col - wspace - 1)) + '^'
+            context = f'\n{stripped}\n{pointer}'
+        if stacktrace:
+            tb = ''.join(format_exception(self)[:-1])
+        else: 
+            tb = ''
+        return '{}{}{}'.format(tb, self.message, context)
+
+class ApeSyntaxError(ApeError):
+    pass
