@@ -430,11 +430,11 @@ class Parser:
         if self.accept_next('colon'):
             return ExceptBlock(body=self.suite())
         test = self.test()
+        name = None
         if self.accept_next('as'):
             name = self.name()
-            self.expect('colon')
-            return ExceptBlock(test=test, name=name, body=self.suite())
-        return ExceptBlock(test=test, name=None, body=self.suite())
+        self.expect('colon')
+        return ExceptBlock(test=test, name=name, body=self.suite())
 
     def else_block(self):
         self.expect('colon')

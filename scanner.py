@@ -72,7 +72,6 @@ class Scanner:
             i += match.end()
 
     def split_into_physical_lines(self, tokens):
-        """Split the list of tokens on newline tokens"""
         pos = 0
         for is_newline, group in groupby(tokens, token_is_newline):
             if is_newline:
@@ -147,7 +146,6 @@ class Scanner:
         for a, b in nviews(lines, 2):
             yield from a.content
             yield self.make_token('newline', '\n', pos=b.pos - 1)
-
 
     def annotate_and_split_control_tokens(self, tokens):
         indent = 0
@@ -248,33 +246,38 @@ class Scanner:
     def __init__(self, keywords, tokens, input_text):
         self.pattern = self.make_regex(keywords, tokens)
         self.input_text = input_text
-        class Token(namedtuple('Token', 'type string pos virtual')):
-            '''Essentially one giant hack'''
-            def extra_repr_content(this):
+
+        class Token:
+            def __init__(self, type, string, pos, virtual):
+                self.type = type
+                self.string = string
+                self.pos = pos
+                self.virtual = virtual
+
+            def virtual_repr(this):
+                if this.virtual:
+                    return ':' + ('*' * this.virtual)
+                return ''
+
+            def extra_repr(this):
                 if this.type in ['dedent', 'indent']:
-                    if this.virtual:
-                        v = 'X' * this.virtual
-                        return f'{len(this.string)}:{v}'
-                    return f'{len(this.string)}'
-                if this.type == 'newline' and this.virtual:
-                    v = 'X' * this.virtual
-                    return f'{v}'
+                    return f':{len(this.string)}'
                 if this.type in variable_content_tokens:
-                    v = 'X' * this.virtual
-                    return f'{this.string!r}:{v}'
-                v = 'X' * this.virtual
-                return f'{v}'
+                    return f':{this.string!r}'
+                return ''
+
             def __repr__(this):
-                extra = this.extra_repr_content()
-                if extra is not None:
-                    return f'({this.line}:{this.col}:{this.type}:{extra})'
-                return f'({this.line}:{this.col}:{this.type})'
+                base = f'{this.line}:{this.col}:{this.type}'
+                return f'({base}{this.extra_repr()}{this.virtual_repr()})'
+
             def __iter__(this):
                 yield this.type
                 yield this.string
+
             @property
             def line(this):
                 return self.input_text[:this.pos].count('\n') + 1
+
             @property
             def col(this):
                 before = self.input_text[:this.pos].rfind('\n')
