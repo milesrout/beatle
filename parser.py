@@ -36,7 +36,7 @@ class Parser:
         self.virtuals = old
 
     def current_token(self):
-        indices = list(range(self.index, len(self.tokens)))
+        indices = range(self.index, len(self.tokens))
         token = next(self.tokens[i] for i in indices
                      if self.tokens[i].virtual is None
                      or self.tokens[i].virtual <= self.virtuals)

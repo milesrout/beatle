@@ -13,6 +13,7 @@ from itertools import groupby
 from utils import *
 
 VirtualLevel = namedtuple('VirtualLevel', 'token indent')
+
 def token_is_newline(tok) -> bool:
     return tok.type == 'space' and tok.string == '\n'
 
@@ -48,7 +49,6 @@ class Scanner:
         print(regex)
         return re.compile(regex)
 
-    @compose(list)
     def lex(self):
         i = 0
         last = 0
@@ -71,7 +71,6 @@ class Scanner:
                 yield tok
             i += match.end()
 
-    @compose(list)
     def split_into_physical_lines(self, tokens):
         """Split the list of tokens on newline tokens"""
         pos = 0
@@ -91,7 +90,7 @@ class Scanner:
         for pos, line in physical_lines:
             line1, line2 = itertools.tee(line)
             prefix = list(itertools.takewhile(is_space, line1))
-            rest = list(itertools.dropwhile(is_space, line2))
+            rest = list(itertools.filterfalse(is_space, line2))
             level = sum(count_indent(tok) for tok in prefix)
             yield IndentLine(indent=level, pos=pos, content=rest)
 
@@ -236,10 +235,6 @@ class Scanner:
         if len(indent_stack) != 0:
             raise ApeSyntaxError(f'mismatched indents somehow: {indent_stack[-1]}')
 
-    @compose(list)
-    def remove_remaining_whitespace(self, tokens):
-        return [t for t in tokens if t.type != 'space']
-
     def add_eof_token(self, tokens):
         eof = self.make_token('EOF', '', pos=len(self.input_text))
         return itertools.chain(tokens, (eof,))
@@ -306,7 +301,6 @@ class Scanner:
             self.create_newline_tokens,
             self.annotate_and_split_control_tokens,
             self.split_dedent_tokens,
-            self.remove_remaining_whitespace,
             self.add_eof_token,
         ]
 
