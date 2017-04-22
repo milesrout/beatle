@@ -13,6 +13,8 @@ from utils import *
 class Parser:
     """A parser for the Beatle programming language"""
 
+    small_expr_tokens = ('del pass assert global nonlocal break continue'
+                         'return raise import from').split()
     compound_tokens = 'if while for try with def class at async'.split()
     ops = 'plus minus times matmul div mod and or xor lsh rsh exp'.split()
     augassign_tokens = [f'aug_{op}' for op in ops]
@@ -20,7 +22,7 @@ class Parser:
     bases = 'decimal hexadecimal octal binary'.split()
     int_tokens = [f'{base}_int' for base in bases]
     float_tokens = 'pointfloat expfloat'.split()
-    string_tokens = [f'{x}_string' for x in 'fs fd fsss fddd s d sss ddd'.split()]
+    string_tokens = [f'{x}_string' for x in 'fs fd fsss fddd s d sss ddd compound'.split()]
 
     def __init__(self, tokens):
         self.tokens = list(tokens)
@@ -41,9 +43,6 @@ class Parser:
                      if self.tokens[i].virtual is None
                      or self.tokens[i].virtual <= self.virtuals)
         return token
-
-    def can_accept(self, actual, acceptable):
-        return actual in acceptable
 
     def consume_token(self):
         token = self.tokens[self.index]
@@ -70,9 +69,18 @@ class Parser:
         if actual.type not in expected:
             friendly = '|'.join(expected)
             raise ApeSyntaxError(actual.line, actual.col, f"{self.virtuals} - expected '{friendly}', got {actual}")
-        else:
+        self.next_token()
+        return actual
+
+    def expect_get_many(self, *expected):
+        result = [self.current_token()]
+        if result[0].type not in expected:
+            friendly = '|'.join(expected)
+            raise ApeSyntaxError(result[0].line, result[0].col, f"{self.virtuals} - expected '{friendly}', got {result[0]}")
+        while self.accept(*expected):
+            result.append(self.current_token())
             self.next_token()
-            return actual
+        return result
 
     def expect(self, expected):
         actual = self.current_token()
@@ -154,6 +162,10 @@ class Parser:
                 yield self.star_expr()
             else:
                 yield self.expr()
+
+    def small_expr(self):
+        with self.show_virtuals():
+            return self.small_stmt()
 
     def small_stmt(self):
         if self.accept_next('del'):
@@ -339,6 +351,10 @@ class Parser:
                 exprs.append(self.test())
         return exprs
 
+    def compound_expr(self):
+        with self.show_virtuals():
+            return self.compound_stmt()
+
     def compound_stmt(self):
         if self.accept_next('if'):
             return self.if_stmt()
@@ -426,6 +442,7 @@ class Parser:
                             excepts=excepts,
                             elses=elses,
                             finallies=finallies)
+
     def except_block(self):
         if self.accept_next('colon'):
             return ExceptBlock(body=self.suite())
@@ -498,7 +515,7 @@ class Parser:
             yield self.decorator()
 
     def funcdef(self):
-        name = self.get_token('id')
+        name = self.get_token('id').string
         params = self.parameters()
         if self.accept_next('arrow'):
             return_annotation = self.test()
@@ -560,7 +577,7 @@ class Parser:
         return params
 
     def tfpdef(self):
-        name = self.get_token('id')
+        name = self.get_token('id').string
         if self.accept_next('colon'):
             annotation = self.test()
         else:
@@ -620,6 +637,10 @@ class Parser:
     def test(self):
         if self.accept('lambda', 'def'):
             return self.lambda_expr()
+        if self.accept(*self.compound_tokens):
+            return self.compound_expr()
+        if self.accept(*self.small_expr_tokens):
+            return self.small_expr()
         expr = self.or_test()
         if self.accept_next('if'):
             cond = self.or_expr()
@@ -834,9 +855,9 @@ class Parser:
             return Comprehension(exprs[0], self.comp_for())
         while self.accept_next('comma'):
             if self.accept(*terminators):
-                break
+                return Literal(exprs, trailing_comma=True)
             exprs.append(self.star_expr_or_test())
-        return Literal(exprs)
+        return Literal(exprs, trailing_comma=False)
 
     def rest_of_dictmaker(self, first):
         if self.accept('async', 'for'):
@@ -868,7 +889,9 @@ class Parser:
 
     def gen_expr_or_tuple_literal(self, expr):
         if isinstance(expr, Literal):
-            return TupleLiteral(expr.exprs)
+            if len(expr.exprs) > 1 or expr.trailing_comma:
+                return TupleLiteral(expr.exprs)
+            return expr.exprs[0]
         else:
             return GeneratorExpression(expr.expr, expr.rest)
 
@@ -948,7 +971,8 @@ class Parser:
         return IdExpression(self.expect_get('id').string)
 
     def string(self):
-        return StringExpression(*self.expect_get(*self.string_tokens))
+        return StringExpression([(*token,) for token in
+                self.expect_get_many(*self.string_tokens)])
 
 def single_input(tokens):
     return Parser(tokens).single_input()

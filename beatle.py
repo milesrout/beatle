@@ -107,7 +107,7 @@ def main():
 
     if verbosity >= 1:
         print('ast:')
-        print(to_json(ast))
+        print(to_json(ast, indent=None if verbosity == 1 else 4))
 
 if __name__ == '__main__':
     main()

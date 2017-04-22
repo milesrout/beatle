@@ -9,8 +9,8 @@ from itertools import tee, zip_longest
 class Expression:
     pass
 
-def to_json(x):
-    return MyJSONEncoder(indent=None).encode(x)
+def to_json(x, indent=None):
+    return MyJSONEncoder(indent=indent).encode(x)
 
 class MyJSONEncoder(json.JSONEncoder):
     def default(self, o):
@@ -30,12 +30,13 @@ variable_content_tokens = [
     'fddd_string',
     'sss_string',
     'ddd_string',
+    'compound_string',
     'pointfloat',
     'expfloat',
     'decimal_int',
     'hexadecimal_int',
     'octal_int',
-    'binary_int'
+    'binary_int',
 ]
 
 irrelevant_content_tokens = ['newline', 'indent', 'dedent', 'EOF']

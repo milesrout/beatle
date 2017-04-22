@@ -21,8 +21,11 @@ This is one big string"""
 "\\\""
 
 if a == 0 or b == 1:
-    if b == 0:
-        print(a, b)
+    print((def():
+      if b == 0:
+          zero_result
+      else:
+          nonzero_result)())
 
 class X:
     def hello(world):

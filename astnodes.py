@@ -28,8 +28,9 @@ class Comprehension(Expression):
         self.rest = rest
 
 class Literal(Expression):
-    def __init__(self, exprs):
+    def __init__(self, exprs, *, trailing_comma):
         self.exprs = exprs
+        self.trailing_comma = trailing_comma
 
 class SetComprehension(Expression):
     def __init__(self, expr, rest):
@@ -321,8 +322,8 @@ class IdExpression(Expression):
         self.name = name
 
 class StringExpression(Expression):
-    def __init__(self, type, unparsed):
-        self.type = type 
+    def __init__(self, unparsed):
+        'Unparsed is a list of strings'
         self.unparsed = unparsed
 
 class EllipsisExpression(Expression):
