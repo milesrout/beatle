@@ -33,9 +33,13 @@ def count_indent(ch):
         raise 'ARGH'
 
 class Scanner:
-    def make_regex(self, keywords_file, tokens_file):
-        keywords_list = json.load(keywords_file, object_pairs_hook=collections.OrderedDict)
+    @staticmethod
+    def make_regex(keywords_file, tokens_file):
+        """Create a regex from the contents of a keywords array and tokens dict
 
+        The keywords array and tokens dict are obtained from files."""
+
+        keywords_list = json.load(keywords_file, object_pairs_hook=collections.OrderedDict)
         keywords = { k.lower():f'\\b{k}\\b' for k in keywords_list }
 
         tokens = json.load(tokens_file, object_pairs_hook=collections.OrderedDict)
@@ -46,7 +50,6 @@ class Scanner:
 
         patterns = (f'(?P<{tok}>{pat})' for tok,pat in tokens.items())
         regex = '|'.join(patterns)
-        print(regex)
         return re.compile(regex)
 
     def lex(self):
@@ -123,86 +126,37 @@ class Scanner:
     def add_blank_line(self, lines):
         return itertools.chain(lines, [IndentLine(indent=0, pos=len(self.input_text), content=[])])
 
-    def create_indentation_tokens(self, lines):
-        yield LogicalLine(pos=lines[0].pos,
-                          content=lines[0].content)
-        for previous, line in nviews(lines, 2):
-            spaces = ' ' * abs(line.indent - previous.indent)
-            if previous.indent < line.indent:
-                token = self.make_token('indent', spaces, line.pos)
-                content = [token] + line.content
-            elif previous.indent > line.indent:
-                token = self.make_token('dedent', spaces, line.pos)
-                content = [token] + line.content
-            else:
-                content = line.content
-            yield LogicalLine(pos=line.pos,
-                              content=content)
-
-    def add_eof_line(self, tokens):
-        return itertools.chain(tokens, [LogicalLine(pos=len(self.input_text), content=[])])
-
-    def create_newline_tokens(self, lines):
-        for a, b in nviews(lines, 2):
-            yield from a.content
-            yield self.make_token('newline', '\n', pos=b.pos - 1)
-
-    def annotate_and_split_control_tokens(self, tokens):
-        indent = 0
-        reduction = 0
-        stack = [VirtualLevel(None, 0)]
-        for token in tokens:
-            if token.type in ['lbrack', 'lbrace', 'lparen']:
-                stack.append(VirtualLevel(token, indent))
+    def parse_indentation(self, lines):
+        stack = [0]
+        indent = [0]
+        for line in lines:
+            if stack[-1] is not None:
+                total = stack[-1] + indent[-1]
+                if line.indent > total:
+                    yield self.make_token('indent', ' ' * (line.indent - total), line.pos, virtual=len(stack) - 1)
+                    indent[-1] += line.indent - total
+                elif line.indent < total:
+                    # we cannot dedent by more than the indent at this level.
+                    amount = min(total - line.indent, indent[-1])
+                    if amount != 0:
+                        yield self.make_token('dedent', ' ' * amount, line.pos, virtual=len(stack) - 1)
+                        indent[-1] -= total - line.indent
+            for token in line.content:
+                if token.type in ['lbrack', 'lbrace', 'lparen']:
+                    if stack[-1] is None:
+                        stack[-1] = token.col - 1
+                    indent.append(0)
+                    stack.append(None)
+                elif token.type in ['rbrack', 'rbrace', 'rparen']:
+                    yield self.make_token('newline', '\n', pos=token.pos, virtual=len(stack) - 1)
+                    if indent[-1] > 0:
+                        yield self.make_token('dedent', ' ' * indent[-1], token.pos, virtual=len(stack) - 1)
+                    stack.pop()
+                    indent.pop()
+                elif stack[-1] is None:
+                    stack[-1] = token.col - 1
                 yield token
-            elif token.type == 'indent':
-                indent += len(token.string)
-                yield self.make_token(token.type, token.string, token.pos, len(stack) - 1)
-            elif token.type == 'newline':
-                yield self.make_token(token.type, token.string, token.pos, len(stack) - 1)
-            elif token.type == 'dedent':
-                amount = len(token.string)
-                if amount > reduction:
-                    amount -= reduction
-                    reduction = 0
-                else:
-                    reduction -= amount
-                    continue
-                indent -= amount
-                yield self.make_token(type='dedent',
-                                      string=amount * ' ',
-                                      pos=token.pos,
-                                      virtual=len(stack) - 1)
-            elif token.type in ['rparen', 'rbrack', 'rbrace']:
-                # this ensures that you can write things like
-                #     (def foo():
-                #         bar())
-                # instead of having to write
-                #     (def foo():
-                #         bar()
-                #     )
-                # (which is still legal).
-                yield self.make_token('newline', '\n', token.pos, len(stack) - 1)
-
-                matching = stack.pop()
-                if token.type[1:] != matching.token.type[1:]:
-                    raise ApeSyntaxError('mismatched brackets: {l} and {r}'.format(
-                        l=stack[-1].token, r=token))
-                diff = indent - matching.indent
-                if diff != 0:
-                    if diff > 0:
-                        yield self.make_token('dedent', ' ' * diff,
-                            pos=token.pos, virtual=len(stack))
-                        indent = matching.indent
-                        reduction += diff
-                    else:
-                        raise ApeSyntaxError(
-                            line=token.line,
-                            col=token.col,
-                            msg=f'mismatched indent levels: {matching} and {token}')
-                yield token
-            else:
-                yield token
+            yield self.make_token('newline', '\n', pos=line.pos, virtual=len(stack) - 1)
 
     def split_dedent_tokens(self, tokens):
         indent_stack = []
@@ -236,6 +190,21 @@ class Scanner:
     def add_eof_token(self, tokens):
         eof = self.make_token('EOF', '', pos=len(self.input_text))
         return itertools.chain(tokens, (eof,))
+
+    def check_indents(self, tokens):
+        t1, t2 = itertools.tee(tokens, 2)
+        total = 0
+        totals = collections.defaultdict(lambda: 0)
+        for token in t1:
+            if token.type == 'indent':
+                total += len(token.string)
+                totals[token.virtual] = totals[token.virtual] + len(token.string)
+            if token.type == 'dedent':
+                total -= len(token.string)
+                totals[token.virtual] = totals[token.virtual] - len(token.string)
+        if total != 0:
+            raise RuntimeError(f'Something weird is going on: {total} {totals}')
+        return t2
 
     @staticmethod
     @compose(list)
@@ -276,12 +245,12 @@ class Scanner:
 
             @property
             def line(this):
-                return self.input_text[:this.pos].count('\n') + 1
+                return self.input_text.count('\n', 0, this.pos) + 1
 
             @property
             def col(this):
-                before = self.input_text[:this.pos].rfind('\n')
-                return this.pos - before
+                return this.pos - self.input_text.rfind('\n', 0, this.pos)
+
         self.make_token_impl = Token
 
     def make_token(self, type, string, pos, virtual=0):
@@ -299,12 +268,10 @@ class Scanner:
             self.remove_blank_lines,
             self.join_continuation_backslashes,
             self.add_blank_line,
-            self.create_indentation_tokens,
-            self.add_eof_line,
-            self.create_newline_tokens,
-            self.annotate_and_split_control_tokens,
+            self.parse_indentation,
             self.split_dedent_tokens,
             self.add_eof_token,
+            self.check_indents,
         ]
 
         for step in lexing_steps:

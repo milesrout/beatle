@@ -1,4 +1,15 @@
 
+class X:
+    def hello(world):
+        def foo():
+            pass; \
+                    pass
+            if 0 < 0.05 <= 1:
+                return print(
+                   'Hello!',
+                   'World!',
+                   'Yeah!')
+
 class Foo:
     def expr_stmt(self):
         tlse = self.testlist_star_expr()
