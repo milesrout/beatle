@@ -206,12 +206,6 @@ class Scanner:
             raise RuntimeError(f'Something weird is going on: {total} {totals}')
         return t2
 
-    @staticmethod
-    @compose(list)
-    def scan(*args, **kwds):
-        scanner = Scanner(*args, **kwds)
-        return scanner()
-
     def __init__(self, keywords, tokens, input_text):
         self.pattern = self.make_regex(keywords, tokens)
         self.input_text = input_text
@@ -256,7 +250,7 @@ class Scanner:
     def make_token(self, type, string, pos, virtual=0):
         return self.make_token_impl(type, string, pos, virtual)
 
-    def __call__(self):
+    def scan(self):
         tokens = self.lex()
 
         # Some of these return complex objects, not just
@@ -279,4 +273,6 @@ class Scanner:
 
         return tokens
 
-scan = Scanner.scan
+def scan(*args, **kwds):
+    scanner = Scanner(*args, **kwds)
+    return list(scanner.scan())

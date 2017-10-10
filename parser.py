@@ -38,11 +38,13 @@ class Parser:
         self.virtuals = old
 
     def current_token(self):
-        indices = range(self.index, len(self.tokens))
-        token = next(self.tokens[i] for i in indices
-                     if self.tokens[i].virtual is None
-                     or self.tokens[i].virtual <= self.virtuals)
-        return token
+        # cache for efficiency - sucks to write code like this but worth it
+        # to make parsing big files significantly faster (hundreds of ms)
+        V = self.virtuals
+        for i in range(self.index, len(self.tokens)):
+            v = self.tokens[i].virtual
+            if v is None or v <= V:
+                return self.tokens[i]
 
     def consume_token(self):
         token = self.tokens[self.index]
@@ -643,7 +645,7 @@ class Parser:
             return self.small_expr()
         expr = self.or_test()
         if self.accept_next('if'):
-            cond = self.or_expr()
+            cond = self.or_test()
             self.expect('else')
             alt = self.test()
             return IfElseExpr(expr, cond, alt)

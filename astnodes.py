@@ -162,6 +162,11 @@ class FunctionExpression(Expression):
         self.suite = suite
         self.return_annotation = return_annotation
 
+class LambdaExpression(Expression):
+    def __init__(self, args, body):
+        self.args = args
+        self.body = body
+
 class ClassDefinition(Expression):
     def __init__(self, name, bases, body):
         self.name = name
