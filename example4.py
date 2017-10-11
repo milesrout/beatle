@@ -3,7 +3,7 @@ class Expression:
 
 class MyJSONEncoder(json.JSONEncoder):
     def foo():
-            pass
+        pass
 
 class Expression:
     pass
