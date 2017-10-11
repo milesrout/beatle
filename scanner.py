@@ -47,9 +47,11 @@ class Scanner:
         keywords.update(tokens)
         tokens = keywords
 
-        patterns = (f'(?P<{tok}>{pat})' for tok,pat in tokens.items())
+        token_types = list(tokens.keys())
+
+        patterns = [f'({pat})' for pat in tokens.values()]
         regex = '|'.join(patterns)
-        return re.compile(regex)
+        return token_types, re.compile(regex)
 
     def lex(self):
         i = 0
@@ -62,12 +64,9 @@ class Scanner:
             if start != i:
                 gap = self.input_text[i:start]
                 raise self.Error(f'unlexable gap between {i} and {start}: {gap}', pos=i)
-            for k, v in match.groupdict().items():
-                if v is not None:
-                    token = self.Token(type=k, string=v, pos=i)
-                    if token.type == 'comment':
-                        break
-                    yield token
+            token_type = self.token_types[match.lastindex - 1]
+            if token_type != 'comment':
+                yield self.Token(type=token_type, string=match.group(match.lastindex), pos=i)
             i = end
 
     def split_into_physical_lines(self, tokens):
@@ -96,26 +95,24 @@ class Scanner:
 
     def join_continuation_backslashes(self, lines):
         """Merge explicit continuation lines"""
-        initial_line = None
+        initial = None
         group = []
         for line in lines:
             if len(line.content) != 0 and line.content[-1].type == 'backslash':
-                group.append(line.content[:-1])
-                if initial_line is None:
-                    initial_line = line
+                group.extend(line.content)
+                group.pop()
+                initial = initial or line
             else:
-                group.append(line.content)
-                if initial_line is not None:
-                    yield flatten(initial_line.indent, initial_line.pos, group)
-                else:
+                if initial is None:
                     yield line
-                initial_line = None
-                group = []
+                else:
+                    group.extend(line.content)
+                    yield IndentLine(indent=initial.indent, pos=initial.pos, content=group)
+                    initial = None
+                    group = []
         if len(group) != 0:
-            raise RuntimeError('cannot end with a continuation line: {}'.format(
-                group))
+            raise self.Error('cannot end with backslash-continuation line');
 
-    @compose(list)
     def add_blank_line(self, lines):
         return itertools.chain(lines, [IndentLine(indent=0, pos=len(self.input_text), content=[])])
 
@@ -200,7 +197,7 @@ class Scanner:
         return t2
 
     def __init__(self, keywords, tokens, input_text):
-        self.pattern = self.make_regex(keywords, tokens)
+        self.token_types, self.pattern = self.make_regex(keywords, tokens)
         self.input_text = input_text
 
         def col(pos):
@@ -268,7 +265,7 @@ class Scanner:
             self.parse_indentation,
             self.split_dedent_tokens,
             self.add_eof_token,
-            self.check_indents,
+            #self.check_indents,
         ]
 
         for step in lexing_steps:
