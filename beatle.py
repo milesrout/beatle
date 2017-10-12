@@ -16,6 +16,7 @@ from itertools import groupby
 from utils import *
 import parser
 import scanner
+import codegen
 
 def parse_args():
     parser = argparse.ArgumentParser(description='ApeVM Beatle Compiler')
@@ -33,20 +34,23 @@ def parse_args():
     parser.add_argument('-s', '--stacktrace', action='store_true', default=False,
                         help='enable printing of stacktraces on errors that are potentially user errors')
 
-    PHASES = ['SCAN', 'PARSE']
+    PHASES = ['SCAN', 'PARSE', 'CODEGEN']
     phases = parser.add_argument_group(title='phases of compilation')
 
     # These options *set* the phases, so they are mutually exclusive.
     ph_mutex = phases.add_mutually_exclusive_group()
     ph_mutex.add_argument('-p', '--phases', nargs='+',
                           choices=PHASES, default=PHASES,
-                          help='which phases to do (SCAN, PARSE)')
+                          help='which phases to do (SCAN, PARSE, CODEGEN)')
     ph_mutex.add_argument('--scan', action='store_const',
                           dest='phases', const=['SCAN'],
                           help='shorthand for --phase SCAN')
     ph_mutex.add_argument('--parse', action='store_const',
                           dest='phases', const=['SCAN', 'PARSE'],
                           help='shorthand for --phase SCAN PARSE')
+    ph_mutex.add_argument('--generate', action='store_const',
+                          dest='phases', const=['SCAN', 'PARSE', 'CODEGEN'],
+                          help='shorthand for --phase SCAN PARSE CODEGEN')
 
     # The rest of the options *add to* the phases, so any combination can
     # be added.
@@ -74,6 +78,9 @@ def main():
 
     if 'PARSE' in args.phases and 'SCAN' not in args.phases:
         print('Unworkable --phase arguments: PARSE phase requires SCAN phase')
+
+    if 'CODEGEN' in args.phases and 'PARSE' not in args.phases:
+        print('Unworkable --phase arguments: CODEGEN phase requires SCAN, PARSE phases')
 
     input_text = args.input.read()
 
@@ -108,6 +115,20 @@ def main():
     if verbosity >= 1:
         print('ast:')
         print(to_json(ast, indent=None if verbosity == 1 else 4))
+
+    if 'CODEGEN' not in args.phases:
+        return
+
+    try:
+        bytecode = codegen.generate(ast)
+    except ApeError as exc:
+        print('ERROR GENERATING CODE')
+        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
+        return
+
+    if verbosity >= 1:
+        print('bytecode:')
+        print(to_json(bytecode, indent=None if verbosity == 1 else 4))
 
 if __name__ == '__main__':
     main()
