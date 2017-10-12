@@ -19,6 +19,11 @@ if a == 0 or b == 1:
              nonzero_result)
     print(a, b)
 
+print(\[$x])
+print([x])
+
+\${1, 2, 3}
+
 x = (
         1,
         2,

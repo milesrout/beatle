@@ -68,6 +68,18 @@ class TupleLiteral(Expression):
     def __init__(self, exprs):
         self.exprs = exprs
 
+class Quasiquote(Expression):
+    def __init__(self, expr):
+        self.expr = expr
+
+class Unquote(Expression):
+    def __init__(self, expr):
+        self.expr = expr
+
+class UnquoteSplice(Expression):
+    def __init__(self, expr):
+        self.expr = expr
+
 #### ENDPLACE
 
 class StarParam(Expression):

@@ -734,7 +734,7 @@ class Parser:
         return factor
 
     def factor(self):
-        if self.accept('plus', 'minus', 'tilde'):
+        if self.accept('plus', 'minus'):
             return UnaryExpression(self.get_token().type, self.factor())
         return self.power()
 
@@ -746,7 +746,7 @@ class Parser:
 
     def atom_expr(self):
         prepend_await = self.accept_next('await')
-        atom = self.atom()
+        atom = self.quasiatom()
         trailers = []
         while self.accept('lparen', 'lbrack', 'dot'):
             trailers.append(self.trailer())
@@ -755,6 +755,15 @@ class Parser:
         if prepend_await:
             return AwaitExpression(atom)
         return atom
+
+    def quasiatom(self):
+        if self.accept_next('quasiquote'):
+            return Quasiquote(self.quasiatom())
+        if self.accept_next('unquote'):
+            return Unquote(self.quasiatom())
+        if self.accept_next('unquotesplice'):
+            return UnquoteSplice(self.quasiatom())
+        return self.atom()
 
     def trailer(self):
         if self.accept_next('lparen'):
@@ -862,6 +871,7 @@ class Parser:
         return Literal(exprs, trailing_comma=False)
 
     def rest_of_dictmaker(self, first):
+        exprs = [first]
         if self.accept('async', 'for'):
             return DictComprehension(first, self.comp_for())
         while self.accept_next('comma'):
@@ -871,6 +881,7 @@ class Parser:
         return DictLiteral(exprs)
 
     def rest_of_setmaker(self, first):
+        exprs = [first]
         if self.accept('async', 'for'):
             return SetComprehension(first, self.comp_for())
         while self.accept_next('comma'):
