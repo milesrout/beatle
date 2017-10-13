@@ -9,6 +9,8 @@
 	"except",
 	"finally",
 	"with",
+	"match",
+	"recur",
 	"as",
 	"async",
 	"yield",

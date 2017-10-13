@@ -736,6 +736,8 @@ class Parser:
     def factor(self):
         if self.accept('plus', 'minus'):
             return UnaryExpression(self.get_token().type, self.factor())
+        if self.accept_next('tilde'):
+            return Lazy(self.factor())
         return self.power()
 
     def power(self):
@@ -761,8 +763,6 @@ class Parser:
             return Quasiquote(self.quasiatom())
         if self.accept_next('unquote'):
             return Unquote(self.quasiatom())
-        if self.accept_next('unquotesplice'):
-            return UnquoteSplice(self.quasiatom())
         return self.atom()
 
     def trailer(self):

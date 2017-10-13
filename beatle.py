@@ -16,6 +16,7 @@ from itertools import groupby
 from utils import *
 import parser
 import scanner
+import typechecker
 import codegen
 
 def parse_args():
@@ -34,23 +35,26 @@ def parse_args():
     parser.add_argument('-s', '--stacktrace', action='store_true', default=False,
                         help='enable printing of stacktraces on errors that are potentially user errors')
 
-    PHASES = ['SCAN', 'PARSE', 'CODEGEN']
+    PHASES = ['SCAN', 'PARSE', 'TYPE', 'CODEGEN']
     phases = parser.add_argument_group(title='phases of compilation')
 
     # These options *set* the phases, so they are mutually exclusive.
     ph_mutex = phases.add_mutually_exclusive_group()
     ph_mutex.add_argument('-p', '--phases', nargs='+',
                           choices=PHASES, default=PHASES,
-                          help='which phases to do (SCAN, PARSE, CODEGEN)')
+                          help='which phases to do')
     ph_mutex.add_argument('--scan', action='store_const',
                           dest='phases', const=['SCAN'],
                           help='shorthand for --phase SCAN')
     ph_mutex.add_argument('--parse', action='store_const',
                           dest='phases', const=['SCAN', 'PARSE'],
                           help='shorthand for --phase SCAN PARSE')
+    ph_mutex.add_argument('--type', action='store_const',
+                          dest='phases', const=['SCAN', 'PARSE', 'TYPE'],
+                          help='shorthand for --phase SCAN PARSE TYPE')
     ph_mutex.add_argument('--generate', action='store_const',
-                          dest='phases', const=['SCAN', 'PARSE', 'CODEGEN'],
-                          help='shorthand for --phase SCAN PARSE CODEGEN')
+                          dest='phases', const=['SCAN', 'PARSE', 'TYPE', 'CODEGEN'],
+                          help='shorthand for --phase SCAN PARSE TYPE CODEGEN')
 
     # The rest of the options *add to* the phases, so any combination can
     # be added.
@@ -114,6 +118,20 @@ def main():
 
     if verbosity >= 1:
         print('ast:')
+        print(to_json(ast, indent=None if verbosity == 1 else 4))
+
+    if 'TYPE' not in args.phases:
+        return
+
+    try:
+        ast = typechecker.annotate(ast)
+    except ApeError as exc:
+        print('TYPE ERROR')
+        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
+        return
+
+    if verbosity >= 1:
+        print('type-annotated ast:')
         print(to_json(ast, indent=None if verbosity == 1 else 4))
 
     if 'CODEGEN' not in args.phases:

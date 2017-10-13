@@ -3,8 +3,6 @@ from collections import namedtuple
 
 from utils import *
 
-#### PLACE THESE SENSIBLY
-
 class EmptyListExpression(Expression):
     def __repr__(self):
         return 'EmptyListExpression'
@@ -80,7 +78,9 @@ class UnquoteSplice(Expression):
     def __init__(self, expr):
         self.expr = expr
 
-#### ENDPLACE
+class Lazy(Expression):
+    def __init__(self, expr):
+        self.expr = expr
 
 class StarParam(Expression):
     def __init__(self, name):
@@ -257,6 +257,10 @@ class AnnotatedExpression(Expression):
 class AugmentedAssignment(Expression):
     def __init__(self, op, expr):
         self.op = op
+        self.expr = expr
+
+class StarStarExpr(Expression):
+    def __init__(self, expr):
         self.expr = expr
 
 class StarExpr(Expression):
