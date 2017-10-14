@@ -6,6 +6,9 @@ import traceback
 from collections import namedtuple
 from itertools import tee, zip_longest
 
+class Type:
+    pass
+
 class Expression:
     pass
 
@@ -14,6 +17,8 @@ def to_json(x, indent=None):
 
 class MyJSONEncoder(json.JSONEncoder):
     def default(self, o):
+        if isinstance(o, Type):
+            return (o.__class__.__name__, vars(o))
         if isinstance(o, Expression):
             return (o.__class__.__name__, vars(o))
         return super().default(o)
@@ -83,6 +88,44 @@ def tap(f):
             return x
         return inner
     return outer
+
+def overloadmethod(f):
+    registry = {}
+    @functools.wraps(f)
+    def overloaded(self, x, *args, **kwds):
+        for k, v in registry.items():
+            if isinstance(x, k):
+                r = v(self, x, *args, **kwds)
+                f(self, x, r)
+                return r
+        raise TypeError('no overload found for {}'.format(x.__class__))
+    def on(t):
+        def register(g):
+            if registry.get(t) is None:
+                registry[t] = g
+            else:
+                raise ValueError('can\'t overload on the same type twice')
+        return register
+    overloaded.on = on
+    return overloaded
+
+def overload(f):
+    registry = {}
+    @functools.wraps(f)
+    def overloaded(x, *args, **kwds):
+        for k, v in registry.items():
+            if isinstance(x, k):
+                return v(x, *args, **kwds)
+        raise TypeError('no overload found for {}'.format(x.__class__))
+    def on(t):
+        def register(g):
+            if registry.get(t) is None:
+                registry[t] = g
+            else:
+                raise ValueError('can\'t overload on the same type twice')
+        return register
+    overloaded.on = on
+    return overloaded
 
 def format_exception(exc):
     tb = exc.__traceback__

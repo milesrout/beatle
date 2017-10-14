@@ -1,5 +1,6 @@
 import re
 from collections import namedtuple
+from functools import reduce
 
 from utils import *
 
@@ -138,8 +139,10 @@ class ElseBranch(Expression):
         self.suite = suite
 
 class IfElifElseStatement(Expression):
-    def __init__(self, branches):
-        self.branches = branches
+    def __init__(self, if_branch, elif_branches, else_branch):
+        self.if_branch = if_branch
+        self.elif_branches = elif_branches
+        self.else_branch = else_branch
 
 class WhileStatement(Expression):
     def __init__(self, cond, body, alt):
@@ -273,13 +276,13 @@ class IfElseExpr(Expression):
         self.cond = cond
         self.alt = alt
 
-class LogicalOrExpression(Expression):
-    def __init__(self, expr):
-        self.expr = expr
+class LogicalOrExpressions(Expression):
+    def __init__(self, exprs):
+        self.exprs = exprs
 
-class LogicalAndExpression(Expression):
-    def __init__(self, expr):
-        self.expr = expr
+class LogicalAndExpressions(Expression):
+    def __init__(self, exprs):
+        self.exprs = exprs
 
 class LogicalNotExpression(Expression):
     def __init__(self, expr):
@@ -320,9 +323,25 @@ class PowerExpression(Expression):
         self.exponent = exponent
 
 class AtomExpression(Expression):
-    def __init__(self, atom, trailers):
+    def __new__(self, atom, trailers):
+        for trailer in trailers:
+            atom = trailer.fix(atom)
+        return atom
+
+class CallExpression(Expression):
+    def __init__(self, atom, args):
         self.atom = atom 
-        self.trailers = trailers
+        self.args = args
+
+class IndexExpression(Expression):
+    def __init__(self, atom, indices):
+        self.atom = atom 
+        self.indices = indices
+
+class AttrExpression(Expression):
+    def __init__(self, atom, name):
+        self.atom = atom 
+        self.name = name
 
 class AwaitExpression(Expression):
     def __init__(self, expr):
@@ -362,10 +381,14 @@ class FalseExpression(Expression):
 class CallTrailer(Expression):
     def __init__(self, args):
         self.args = args
+    def fix(self, atom):
+        return CallExpression(atom, self.args)
 
 class IndexTrailer(Expression):
     def __init__(self, indices):
         self.indices = indices
+    def fix(self, atom):
+        return IndexExpression(atom, self.indices)
 
 class Index(Expression):
     def __init__(self, idx):
@@ -380,6 +403,8 @@ class Slice(Expression):
 class AttrTrailer(Expression):
     def __init__(self, name):
         self.name = name
+    def fix(self, atom):
+        return AttrExpression(atom, self.name)
 
 class StarArg(Expression):
     def __init__(self, name):
@@ -434,24 +459,29 @@ class Param(Expression):
         return f'Param({self.name}, {self.annotation}, {self.default})'
     def __str__(self):
         if self.default is None and self.annotation is None:
-            return self.name.string
+            return self.name
         elif self.default is None:
-            return f'{self.name.string}: {self.annotation}'
+            return f'{self.name}: {self.annotation}'
         elif self.annotation is None:
-            return f'{self.name.string}={self.default}'
+            return f'{self.name}={self.default}'
         else:
-            return f'{self.name.string}: {self.annotation} = {self.default}'
+            return f'{self.name}: {self.annotation} = {self.default}'
+
+class Comparison(Expression):
+    def __init__(self, op, a, b):
+        self.op = op
+        self.a = a
+        self.b = b
 
 class ComparisonChain(Expression):
-    def __init__(self, chain):
+    def __new__(self, chain):
         """A chain of comparisons
         
         chain is something like ('0', 'lt', 'x', 'le', '1'), which
         gets translated to (('0', 'lt', 'x') && ('x', 'le' '1'))
         """
-        self.input = chain
-        self.result = list(nviews(chain, 3))[::2]
-
-    def __repr__(self):
-        return repr(self.result)
+        split = list(nviews(chain, 3))[::2]
+        combined = functools.reduce(LogicalAndExpressions,
+            (Comparison(op, a, b) for a, op, b in split))
+        return combined
 

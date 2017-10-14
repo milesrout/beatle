@@ -124,7 +124,7 @@ def main():
         return
 
     try:
-        ast = typechecker.annotate(ast)
+        ast = typechecker.infer(ast)
     except ApeError as exc:
         print('TYPE ERROR')
         print(exc.format_with_context(input_text, stacktrace=args.stacktrace))

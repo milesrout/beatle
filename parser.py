@@ -351,7 +351,9 @@ class Parser:
                 exprs.append(StarExpr(self.expr()))
             else:
                 exprs.append(self.test())
-        return exprs
+        if len(exprs) != 1:
+            return TupleLiteral(exprs)
+        return exprs[0]
 
     def compound_expr(self):
         with self.show_virtuals():
@@ -384,13 +386,15 @@ class Parser:
             self.expect('colon')
             suite = self.suite()
             return (cond, suite)
-        branches = [IfBranch(*cond_suite())]
+        if_branch = IfBranch(*cond_suite())
+        elif_branches = []
+        else_branch = None
         while self.accept_next('elif'):
-            branches.append(ElifBranch(*cond_suite()))
+            elifs.append(ElifBranch(*cond_suite()))
         if self.accept_next('else'):
             self.expect('colon')
-            branches.append(ElseBranch(self.suite()))
-        return IfElifElseStatement(branches)
+            else_branch = ElseBranch(self.suite())
+        return IfElifElseStatement(if_branch, elif_branches, else_branch);
 
     def async_funcdef(self):
         self.expect('def')
@@ -657,7 +661,7 @@ class Parser:
             exprs.append(self.and_test())
         if len(exprs) == 1:
             return exprs[0]
-        return LogicalOrExpression(exprs)
+        return LogicalOrExpressions(exprs)
 
     def and_test(self):
         exprs = [self.not_test()]
@@ -665,7 +669,7 @@ class Parser:
             exprs.append(self.not_test())
         if len(exprs) == 1:
             return exprs[0]
-        return LogicalAndExpression(exprs)
+        return LogicalAndExpressions(exprs)
 
     def not_test(self):
         if self.accept_next('not'):

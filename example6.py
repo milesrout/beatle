@@ -4,11 +4,11 @@ c = 3
 zero_result = 0
 nonzero_result = 1
 
-if a != 0:
-    if b != 0:
-        if c != 0:
-            print("hello")
-            print("hello")
+if a == 0:
+    if b:
+        if c:
+            (print("hello"),
+             print("hello"))
         print("goodbye")
     print("world")
 print("okay")
@@ -23,7 +23,7 @@ if a == 0 or b == 1:
              zero_result
          else:
              nonzero_result)
-    print(str(a + b))
+    print(a, b)
 
 # we don't do macroexpansion yet - need to do it before we do
 # type-checking unless I use structured binding types (λ_s calculus) to
@@ -39,6 +39,12 @@ x = (
         3
     )
 
+
+def bar(a):
+    confuser = (
+        def(a = (yield)):
+            yield from a
+    )
 
 def foo():
     print_hello = (def(a, b, c):
