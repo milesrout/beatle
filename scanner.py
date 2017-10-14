@@ -24,13 +24,10 @@ def flatten(indent, pos, group):
     return IndentLine(indent=indent, pos=pos,
             content=list(itertools.chain.from_iterable(group)))
 
-def count_indent(ch):
-    if ch.string == ' ':
-        return 1
-    elif ch.string == '\t':
-        return 8
-    else:
-        raise 'ARGH'
+def count_indent(token):
+    if all(x == ' ' for x in token.string):
+        return len(token.string)
+    raise ApeSyntaxError(msg='Tab characters are not valid as indentation', pos=token.pos)
 
 class Scanner:
     def make_regex(self, keywords_file, tokens_file):
