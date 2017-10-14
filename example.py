@@ -1,8 +1,24 @@
 a = 1
 b = 2
 c = 3
+d = 'hello'
+h = set()
+i = {'a': 1, 'b': 2}
+j = {'c': 3, **i}
+k = {'a', 'b', *h}
+l = {1, 2, 3}
+m = [4, 5, 6]
 zero_result = 0
 nonzero_result = 1
+
+def foo(x, y, z, *q):
+    pass
+
+def bar(x, *, bar=None):
+    pass
+
+def baz(trailing_comma=1, **foo):
+    pass
 
 if a != 0:
     if b != 0:
@@ -39,17 +55,18 @@ x = (
         3
     )
 
+print(str((1.0, 2.0, 3.0)))
 
 def foo():
     print_hello = (def(a, b, c):
                        a; b; c
-                       print(def():
-                               print()
-                               print(
-                                  (1, 2, 3),
-                                (a, b, c)))
-                       print('Hello',
-                             (def():
-                                 print(1, 2, 3); print(a, b, c)
-                                 pass),
-                        'World'))
+                       print(str(def():
+                                   print('what?')
+                                   print(
+                                      str(1, 2, 3) +
+                                    str(a, b, c))))
+                       print(str(['Hello',
+                             str((def():
+                                     print(str((1, 2, 3))); print(str(a, b, c))
+                                     pass)),
+                        'World'])))

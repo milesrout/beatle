@@ -172,7 +172,8 @@ class Scanner:
                         diff = len(token.string) - len(matching.string)
             yield token
         if len(indent_stack) != 0:
-            raise ApeSyntaxError(f'mismatched indents somehow: {indent_stack[-1]}')
+            raise ApeSyntaxError(pos=indent_stack[-1].pos, 
+                                 msg=f'mismatched indents somehow: {indent_stack[-1]}')
 
     def add_eof_token(self, tokens):
         eof = self.Token('EOF', '', pos=len(self.input_text))
@@ -207,8 +208,7 @@ class Scanner:
             def __init__(this, msg, pos):
                 super().__init__(
                     msg=msg,
-                    line=line(pos),
-                    col=col(pos))
+                    pos=pos)
 
         class Token:
             def __init__(this, type, string, pos, virtual=0):

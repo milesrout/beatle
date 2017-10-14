@@ -19,6 +19,11 @@ class BoolType(PrimitiveType):
         return 'bool'
 Bool = BoolType()
 
+class FloatType(PrimitiveType):
+    def __str__(self):
+        return 'float'
+Float = FloatType()
+
 class IntType(PrimitiveType):
     def __str__(self):
         return 'int'
@@ -76,6 +81,39 @@ class ListType(Type):
         return ListType(self.t.apply(subst))
     def ftv(self):
         return self.t.ftv()
+    def __eq__(self, other):
+        if isinstance(other, ListType):
+            return self.t == other.t
+        return False
+
+class SetType(Type):
+    def __init__(self, t):
+        self.t = t
+    def __str__(self):
+        return f'{{{self.t}}}'
+    def apply(self, subst):
+        return SetType(self.t.apply(subst))
+    def ftv(self):
+        return self.t.ftv()
+    def __eq__(self, other):
+        if isinstance(other, SetType):
+            return self.t == other.t
+        return False
+
+class DictType(Type):
+    def __init__(self, k, v):
+        self.k = k
+        self.v = v
+    def __str__(self):
+        return f'{{{self.k}: {self.v}}}'
+    def apply(self, subst):
+        return DictType(self.k.apply(subst), self.v.apply(subst))
+    def ftv(self):
+        return set.union(self.k.ftv(), self.v.ftv())
+    def __eq__(self, other):
+        if isinstance(other, DictType):
+            return self.k == other.k and self.v == other.v
+        return False
 
 class FunctionType(Type):
     def __init__(self, t1, t2):
@@ -110,10 +148,11 @@ class TypeScheme:
 BASE_ENVIRONMENT = {
     'print': TypeScheme([], FunctionType(String, Unit)),
     'str': TypeScheme(['a'], FunctionType(TypeVariable('a'), String)),
+    'set': TypeScheme(['a'], FunctionType(Unit, SetType(TypeVariable('a')))),
 }
 
 BUILTIN_OPERATORS = {
-    'plus': FunctionType(TupleType([Int, Int]), Int)
+    'plus': TypeScheme(['a'], FunctionType(TupleType([TypeVariable('a'), TypeVariable('a')]), TypeVariable('a'))),
 }
 
 class Infer:
@@ -128,10 +167,10 @@ class Infer:
     def instantiate(self, scm):
         return scm.t.apply({tvar: self.fresh() for tvar in scm.tvars})
 
-    def lookup(self, name):
+    def lookup(self, name, pos):
         scm = self.env.get(name, None)
         if scm is None:
-            raise ApeSyntaxError(f'Unbound variable: {name}', pos=0)
+            raise ApeSyntaxError(msg=f'Unbound variable: {name}', pos=pos)
         return self.instantiate(scm)
 
     @overloadmethod
@@ -142,14 +181,62 @@ class Infer:
     def _(self, ast):
         return Unit
 
+    @infer.on(NoneExpression)
+    def _(self, ast):
+        return Unit
+
     @infer.on(EmptyListExpression)
     def _(self, ast):
         tv = self.fresh()
-        return TypeScheme([tv.name], ListType(tv))
+        return ListType(tv)
+
+    @infer.on(EmptyDictExpression)
+    def _(self, ast):
+        tk = self.fresh()
+        tv = self.fresh()
+        return DictType(tk, tv)
+
+    @infer.on(ListLiteral)
+    def _(self, ast):
+        tv = self.fresh()
+        ts = ListType(tv)
+        for expr in ast.exprs:
+            if isinstance(expr, StarExpr):
+                self.unify(ts, self.infer(expr.expr), expr.pos)
+            else:
+                self.unify(tv, self.infer(expr), expr.pos)
+        return ts
+
+    @infer.on(SetLiteral)
+    def _(self, ast):
+        tv = self.fresh()
+        ts = SetType(tv)
+        for expr in ast.exprs:
+            if isinstance(expr, StarExpr):
+                self.unify(ts, self.infer(expr.expr), expr.pos)
+            else:
+                self.unify(tv, self.infer(expr), expr.pos)
+        return ts
+
+    @infer.on(DictLiteral)
+    def _(self, ast):
+        tK, tV = self.fresh(), self.fresh()
+        tD = DictType(tK, tV)
+        for expr in ast.exprs:
+            if isinstance(expr, DictPair):
+                self.unify(tK, self.infer(expr.key_expr), expr.key_expr.pos)
+                self.unify(tV, self.infer(expr.value_expr), expr.value_expr.pos)
+            else:
+                self.unify(tD, self.infer(expr.expr), expr.expr.pos)
+        return tD
 
     @infer.on(StringExpression)
     def _(self, ast):
         return String
+
+    @infer.on(FloatExpression)
+    def _(self, ast):
+        return Float
 
     @infer.on(IntExpression)
     def _(self, ast):
@@ -160,8 +247,8 @@ class Infer:
         t1 = self.infer(ast.cond)
         t2 = self.infer(ast.expr)
         t3 = self.infer(ast.alt)
-        self.unify(t1, Bool)
-        self.unify(t2, t3)
+        self.unify(t1, Bool, ast.cond.pos)
+        self.unify(t2, t3, ast.expr.pos)
         return t2
 
     @infer.on(ArithExpression)
@@ -170,28 +257,28 @@ class Infer:
         t2 = self.infer(ast.right)
         tv = self.fresh()
         u1 = FunctionType(TupleType([t1, t2]), tv)
-        u2 = BUILTIN_OPERATORS[ast.op]
-        self.unify(u1, u2)
+        u2 = self.instantiate(BUILTIN_OPERATORS[ast.op])
+        self.unify(u1, u2, ast.pos)
         return tv
 
     @infer.on(IfElifElseStatement)
     def _(self, ast):
         tc1 = self.infer(ast.if_branch.cond)
-        tcs = [self.infer(b.cond) for b in ast.elif_branches]
+        tcs = [(self.infer(b.cond), b.cond.pos) for b in ast.elif_branches]
 
-        self.unify(tc1, Bool)
-        for tc in tcs:
-            self.unify(tc1, Bool)
+        self.unify(tc1, Bool, ast.pos)
+        for tc, pos in tcs:
+            self.unify(tc, Bool, pos)
 
         ts1 = self.infer(ast.if_branch.suite)
         tss = [self.infer(b.suite) for b in ast.elif_branches]
 
         if ast.else_branch is not None:
             ts2 = self.infer(ast.else_branch.suite)
-            self.unify(ts1, ts2)
+            self.unify(ts1, ts2, ast.else_branch.pos)
 
         for ts in tss:
-            self.unify(ts1, ts)
+            self.unify(ts1, ts, ast.pos)
 
         return ts1
 
@@ -205,7 +292,7 @@ class Infer:
         t1 = self.infer(ast.atom)
         ts = TupleType([self.infer(arg) for arg in ast.args])
         tv = self.fresh()
-        self.unify(t1, FunctionType(ts, tv))
+        self.unify(t1, FunctionType(ts, tv), ast.pos)
         return tv
 
     @infer.on(ChainedAssignment)
@@ -219,10 +306,10 @@ class Infer:
             if isinstance(a, IdExpression):
                 t = self.fresh()
                 self.env[a.name] = TypeScheme([], t)
-                ts.append(t)
+                ts.append((t, a.pos))
 
-        for t in ts:
-            self.unify(t1, t)
+        for t, pos in ts:
+            self.unify(t1, t, pos)
 
         return Unit
 
@@ -230,41 +317,44 @@ class Infer:
     def _(self, ast):
         t1 = self.infer(ast.a)
         t2 = self.infer(ast.b)
-        self.unify(t1, t2)
+        self.unify(t1, t2, ast.pos)
         return Bool
 
     @infer.on(IdExpression)
     def _(self, ast):
-        return self.lookup(ast.name)
+        return self.lookup(ast.name, ast.pos)
 
     @infer.on(Statements)
     def _(self, ast):
-        ts = [self.infer(stmt) for stmt in ast.stmts]
-        for t in ts:
-            self.unify(t, Unit)
+        ts = [(self.infer(stmt), stmt.pos) for stmt in ast.stmts]
+        for t, pos in ts:
+            self.unify(t, Unit, pos)
         return Unit
 
     @infer.on(LogicalOrExpressions)
     def _(self, ast):
-        ts = [self.infer(expr) for expr in ast.exprs]
-        for t in ts:
-            self.unify(t, Bool)
+        ts = [(self.infer(expr), expr.pos) for expr in ast.exprs]
+        for t, pos in ts:
+            self.unify(t, Bool, pos)
         return Bool
 
     @compose(list)
     def infer_params(self, params):
         for p in params:
+            if isinstance(p, EndOfPosParams):
+                continue
             tv = self.fresh()
             self.env[p.name] = TypeScheme([], tv)
 
-            if p.annotation:
-                pass # we don't parse types properly yet
-                # ta = self.understand_type_language(p.annotation)
-                # self.unify(tv, ta)
+            if isinstance(p, Param):
+                if p.annotation:
+                    pass # we don't parse types properly yet
+                    # ta = self.understand_type_language(p.annotation)
+                    # self.unify(tv, ta)
 
-            if p.default:
-                td = self.infer(p.default)
-                self.unify(tv, td)
+                if p.default:
+                    td = self.infer(p.default)
+                    self.unify(tv, td, p.default.pos)
 
             yield tv
 
@@ -298,23 +388,22 @@ class Infer:
                 pass # we don't parse types properly yet
                 # tr = self.understand_type_language(ast.return_annotation)
                 # self.unify(t, tr)
-            return FunctionType(TupleType(params), t)
+            typ = FunctionType(TupleType(params), t)
         finally:
             self.env = old
+            self.env[ast.name] = TypeScheme([], typ)
+            return Unit
 
-    def unify(self, t1, t2):
+    def unify(self, t1, t2, pos):
         if isinstance(t1, TypeScheme) or isinstance(t2, TypeScheme):
             raise RuntimeError('What???')
-        self.unifiers.append(Constraint(t1, t2))
+        self.unifiers.append(Constraint(t1, t2, pos))
 
 def infer(ast):
     i = Infer()
-    try:
-        t = i.infer(ast)
-        s = solve({}, i.unifiers)
-        return ast.apply(s)
-    except TypeError as exc:
-        raise ApeInferenceError(line=0, col=0, msg=str(exc)) from exc
+    t = i.infer(ast)
+    s = solve({}, i.unifiers)
+    return ast
 
 def bind(tvar, t):
     if isinstance(t, TypeVariable) and t.tvar == tvar:
@@ -323,44 +412,57 @@ def bind(tvar, t):
         raise RuntimeError('infinite type!')
     return {tvar: t}
 
-def unifies(t1, t2):
+def unifies(t1, t2, pos):
     if t1 == t2:
         return {}
+
     if isinstance(t1, TypeVariable):
         return bind(t1.tvar, t2)
     if isinstance(t2, TypeVariable):
         return bind(t2.tvar, t1)
-    if isinstance(t1, TupleType) and len(t1.ts) == 1:
-        return unifies(t1.ts[0], t2)
-    if isinstance(t2, TupleType) and len(t2.ts) == 1:
-        return unifies(t1, t2.ts[0])
-    if isinstance(t1, FunctionType) and isinstance(t2, FunctionType):
-        return unify_many([t1.t1, t1.t2], [t2.t1, t2.t2])
-    raise ApeUnificationError(line=0, col=0, msg=f'Cannot unify {t1} and {t2}')
 
-def unify_many(t1x, t2x):
+    # one-element tuples are transparent
+    if isinstance(t1, TupleType) and len(t1.ts) == 1:
+        return unifies(t1.ts[0], t2, pos)
+    if isinstance(t2, TupleType) and len(t2.ts) == 1:
+        return unifies(t1, t2.ts[0], pos)
+    if isinstance(t1, TupleType) and isinstance(t2, TupleType):
+        if len(t1.ts) == len(t2.ts):
+            return unify_many(t1.ts, t2.ts, pos)
+
+    if isinstance(t1, SetType) and isinstance(t2, SetType):
+        return unifies(t1.t, t2.t, pos)
+    if isinstance(t1, ListType) and isinstance(t2, ListType):
+        return unifies(t1.t, t2.t, pos)
+
+    if isinstance(t1, DictType) and isinstance(t2, DictType):
+        return unify_many([t1.k, t1.v], [t2.k, t2.v], pos)
+    if isinstance(t1, FunctionType) and isinstance(t2, FunctionType):
+        return unify_many([t1.t1, t1.t2], [t2.t1, t2.t2], pos)
+    raise ApeUnificationError(pos=pos, msg=f'Cannot unify {t1} and {t2}')
+
+def unify_many(t1x, t2x, pos):
     if len(t1x) == 0 and len(t2x) == 0:
         return {}
+
     [t1, *t1s], [t2, *t2s] = t1x, t2x
-    su1 = unifies(t1, t2)
+    su1 = unifies(t1, t2, pos)
     su2 = unify_many(
         [t.apply(su1) for t in t1s],
-        [t.apply(su1) for t in t2s])
+        [t.apply(su1) for t in t2s], pos)
     return compose_subst(su2, su1)
 
 class Constraint:
-    def __init__(self, t1, t2):
+    def __init__(self, t1, t2, pos):
         self.t1 = t1
         self.t2 = t2
+        self.pos = pos
     def __repr__(self):
         return f'{self.t1} ~ {self.t2}'
     def apply(self, subst):
-        return Constraint(self.t1.apply(subst), self.t2.apply(subst))
+        return Constraint(self.t1.apply(subst), self.t2.apply(subst), self.pos)
     def ftv(self):
         return set.union(self.t1.ftv(), self.t2.ftv())
-    def __iter__(self):
-        yield self.t1
-        yield self.t2
 
 def compose_subst(su1, su2):
     return {**su1, **su2}
@@ -369,8 +471,8 @@ def solve(su, cs):
     if len(cs) == 0:
         return su
 
-    [(t1, t2), *cs0] = cs
-    su1 = unifies(t1, t2)
+    [c, *cs0] = cs
+    su1 = unifies(c.t1, c.t2, c.pos)
 
     return solve(compose_subst(su1, su), [c.apply(su1) for c in cs0])
 

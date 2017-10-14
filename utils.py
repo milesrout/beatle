@@ -21,6 +21,8 @@ class MyJSONEncoder(json.JSONEncoder):
             return (o.__class__.__name__, vars(o))
         if isinstance(o, Expression):
             return (o.__class__.__name__, vars(o))
+        if o.__class__.__name__ == 'Token':
+            return repr(o)
         return super().default(o)
 
 pformat = pprint.PrettyPrinter(indent=4, compact=True).pformat
@@ -133,26 +135,30 @@ def format_exception(exc):
     return traceback.format_exception(cls, exc, tb)
 
 class ApeError(Exception):
-    def __init__(self, line, col, msg):
-        self.message = f'{line}:{col}: {msg}'
-        self.line = line
-        self.col = col
+    def __init__(self, pos, msg):
+        self.msg = msg
+        self.pos = pos
 
     def format_with_context(self, input_text, stacktrace=False):
+        linenumber = input_text.count('\n', 0, self.pos) + 1
+        col = self.pos - input_text.rfind('\n', 0, self.pos)
+
         try:
-            line = input_text.splitlines()[self.line - 1]
+            line = input_text.splitlines()[linenumber - 1]
         except IndexError:
             context = ''
         else:
             stripped = line.lstrip()
             wspace = len(line) - len(stripped)
-            pointer = (' ' * (self.col - wspace - 1)) + '^'
+            pointer = (' ' * (col - wspace - 1)) + '^'
             context = f'\n{stripped}\n{pointer}'
         if stacktrace:
             tb = ''.join(format_exception(self)[:-1])
         else: 
             tb = ''
-        return '{}{}{}'.format(tb, self.message, context)
+
+        message = f'{linenumber}:{col}: {self.msg}'
+        return '{}{}{}'.format(tb, message, context)
 
 class ApeSyntaxError(ApeError):
     pass
