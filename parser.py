@@ -15,7 +15,8 @@ class Parser:
 
     small_expr_tokens = ('del pass assert global nonlocal break continue'
                          'return raise import from').split()
-    compound_tokens = 'if while for try with def class at async'.split()
+    compound_tokens = 'if while for try with def class interface at async'.split()
+    toplevel_tokens = ['macro', *compound_tokens]
     ops = 'plus minus times matmul div mod and or xor lsh rsh exp'.split()
     augassign_tokens = [f'aug_{op}' for op in ops]
     comparison_op_tokens = 'lt gt eq ge le ne in is'.split()
@@ -70,7 +71,7 @@ class Parser:
         actual = self.current_token()
         if actual.type not in expected:
             friendly = '|'.join(expected)
-            raise ApeSyntaxError(tok.pos, f"{self.virtuals} - expected '{friendly}', got {actual}")
+            raise ApeSyntaxError(actual.pos, f"{self.virtuals} - expected '{friendly}', got {actual}")
         self.next_token()
         return actual
 
@@ -118,8 +119,8 @@ class Parser:
             yield self.stmt()
 
     def single_input(self):
-        if self.accept(*self.compound_tokens):
-            stmt = self.compound_stmt()
+        if self.accept(*self.toplevel_tokens):
+            stmt = self.toplevel_stmt()
             self.expect('newline')
             return stmt
         elif self.accept_next('newline'):
@@ -127,9 +128,15 @@ class Parser:
         else:
             return self.simple_stmt()
 
-    def stmt(self):
+    def inner_stmt(self):
         if self.current_token().type in self.compound_tokens:
             return self.compound_stmt()
+        else:
+            return self.simple_stmt()
+
+    def stmt(self):
+        if self.current_token().type in self.toplevel_tokens:
+            return self.toplevel_stmt()
         else:
             return self.simple_stmt()
 
@@ -170,75 +177,68 @@ class Parser:
             return self.small_stmt()
 
     def small_stmt(self):
-        if self.accept('del'):
-            return self.del_stmt()
-        if self.accept('pass'):
-            return self.pass_stmt()
-        if self.accept('assert'):
-            return self.assert_stmt()
-        if self.accept('global'):
-            return self.global_stmt()
-        if self.accept('nonlocal'):
-            return self.nonlocal_stmt()
-        if self.accept('break'):
-            return self.break_stmt()
-        if self.accept('continue'):
-            return self.continue_stmt()
-        if self.accept('return'):
-            return self.return_stmt()
-        if self.accept('raise'):
-            return self.raise_expr()
+        pos = self.current_token().pos
+        if self.accept_next('del'):
+            return self.del_stmt(pos)
+        if self.accept_next('pass'):
+            return self.pass_stmt(pos)
+        if self.accept_next('assert'):
+            return self.assert_stmt(pos)
+        if self.accept_next('global'):
+            return self.global_stmt(pos)
+        if self.accept_next('nonlocal'):
+            return self.nonlocal_stmt(pos)
+        if self.accept_next('break'):
+            return self.break_stmt(pos)
+        if self.accept_next('continue'):
+            return self.continue_stmt(pos)
+        if self.accept_next('return'):
+            return self.return_stmt(pos)
+        if self.accept_next('raise'):
+            return self.raise_expr(pos)
         if self.accept_next('yield'):
-            return self.yield_expr('semicolon', 'newline')
+            return self.yield_expr(pos, 'semicolon', 'newline')
         if self.accept('import', 'from'):
-            return self.import_stmt()
+            return self.import_stmt(pos)
         return self.expr_stmt()
 
-    def del_stmt(self):
-        pos = self.get_token().pos
+    def del_stmt(self, pos):
         return DelStatement(self.exprlist('semicolon', 'newline'), pos)
 
-    def pass_stmt(self):
-        return PassStatement(self.get_token().pos)
+    def pass_stmt(self, pos):
+        return PassStatement(pos)
 
-    def assert_stmt(self):
-        pos = self.get_token().pos
+    def assert_stmt(self, pos):
         exprs = [self.test()]
         while self.accept_next('comma'):
             exprs.append(self.test())
         return AssertStatement(exprs, pos)
 
-    def global_stmt(self):
-        pos = self.get_token().pos
+    def global_stmt(self, pos):
         names = [self.name()]
         while self.accept_next('comma'):
             names.append(self.name())
         return GlobalStatement(names, pos)
 
-    def nonlocal_stmt(self):
-        pos = self.get_token().pos
+    def nonlocal_stmt(self, pos):
         names = [self.name()]
         while self.accept_next('comma'):
             names.append(self.name())
         return NonlocalStatement(names, pos)
 
-    def break_stmt(self):
-        pos = self.get_token().pos
+    def break_stmt(self, pos):
         return BreakStatement(pos)
 
-    def continue_stmt(self):
-        pos = self.get_token().pos
+    def continue_stmt(self, pos):
         return ContinueStatement(pos)
 
-    def return_stmt(self):
-        pos = self.get_token().pos
+    def return_stmt(self, pos):
         if self.accept('semicolon', 'newline'):
             return ReturnStatement(None, pos)
         return ReturnStatement(self.testlist(), pos)
         #return ReturnStatement(self.testlist('newline'))
 
-    def raise_expr(self):
-        pos = self.get_token().pos
+    def raise_expr(self, pos):
         if self.accept('semicolon', 'newline'):
             return RaiseStatement(exc=None, original=None, pos=pos)
         exc = self.test()
@@ -246,36 +246,36 @@ class Parser:
             return RaiseStatement(exc, original=self.test(), pos=pos)
         return RaiseStatement(exc, original=None, pos=pos)
 
-    def yield_expr(self, *terminators):
+    def yield_expr(self, pos, *terminators):
         if self.accept_next('from'):
-            return YieldExpression(exprs=[self.test()])
+            return YieldExpression(exprs=[self.test()], pos=pos)
         if self.accept(*terminators):
-            return YieldExpression(exprs=[])
-        return YieldExpression(exprs=self.testlist())
+            return YieldExpression(exprs=[], pos=pos)
+        return YieldExpression(exprs=self.testlist(), pos=pos)
 
-    def import_stmt(self):
+    def import_stmt(self, pos):
         if self.accept_next('from'):
-            return self.import_from()
+            return self.import_from(pos)
         elif self.accept_next('import'):
-            return self.import_name()
-        raise LogicError(f'{import_stmt} called in the wrong context')
+            return self.import_name(pos)
+        raise RuntimeError(f'{import_stmt} called in the wrong context')
 
-    def import_name(self):
-        return ImportStatement(names=self.dotted_as_names())
+    def import_name(self, pos):
+        return ImportStatement(names=self.dotted_as_names(), pos=pos)
 
-    def import_from(self):
+    def import_from(self, pos):
         dots = self.import_dots()
         name = None
         if self.accept('id'):
             name = self.dotted_name()
         self.expect('import')
         if self.accept_next('asterisk'):
-            return FromImportStatement(name=name, dots=dots, what=None)
+            return FromImportStatement(name=name, dots=dots, what=None, pos=pos)
         if self.accept_next('lparen'):
             what = self.import_as_names()
             self.expect('rparen')
-            return FromImportStatement(name=name, dots=dots, what=what)
-        return FromImportStatement(name=name, dots=dots, what=self.import_as_names())
+            return FromImportStatement(name=name, dots=dots, what=what, pos=pos)
+        return FromImportStatement(name=name, dots=dots, what=self.import_as_names(), pos=pos)
 
     @compose(sum)
     def import_dots(self):
@@ -317,17 +317,103 @@ class Parser:
         while self.accept_next('dot'):
             yield self.name()
 
+    #a -> b -> c
+    #a -> (b -> c)
+    #a[b] -> c -> d
+    #(a[b]) -> (c -> d)
+    #(a -> b) -> [a] -> [b]
+    #((a -> b) -> (([a]) -> ([b])))
+
+    def toplevel_type_expr(self):
+        pos = self.current_token().pos
+        if self.accept_next('forall'):
+            return self.forall_type_expr(pos)
+        return TypeForallExpression([], self.type_expr(), pos=pos)
+
+    def type_expr(self):
+        expr = self.type_atom_expr()
+        if self.accept_next('arrow'):
+            return TypeFunctionExpression(expr, self.type_expr())
+        return expr
+
+    def forall_type_expr(self, pos):
+        tvars = [self.name()]
+        while self.accept_next('comma'):
+            tvars.append(self.name())
+        self.expect('dot')
+        return TypeForallExpression(tvars, self.type_expr(), pos)
+
+    def type_atom_expr(self):
+        expr = self.type()
+        if self.accept_next('lbrack'):
+            return TypeCallExpression(expr, self.type_call_args())
+        return expr
+
+    def type(self):
+        pos = self.current_token().pos
+        if self.accept_next('lparen'):
+            exprs = [self.type_expr()]
+            if not self.accept('comma'):
+                self.expect('rparen')
+                return exprs[0]
+            while self.accept_next('comma'):
+                if self.accept_next('rparen'):
+                    return TypeTupleExpression(exprs, pos=pos)
+                exprs.append(self.type_expr())
+            self.expect('rparen')
+            return TypeTupleExpression(exprs, pos=pos)
+        if self.accept_next('lbrack'):
+            return self.type_list()
+        return TypeNameExpression(self.name())
+
+    def new_type_expr(self):
+        expr = self.name()
+        if self.accept_next('lbrack'):
+            return (expr, self.new_type_call_args())
+        return (expr, [])
+
+    @compose(list)
+    def new_type_call_args(self):
+        yield self.name()
+        while self.accept_next('comma'):
+            if self.accept_next('rbrack'):
+                return
+            yield self.name()
+        self.expect('rbrack')
+
+    @compose(list)
+    def type_call_args(self):
+        yield self.type_expr()
+        while self.accept_next('comma'):
+            if self.accept_next('rbrack'):
+                return
+            yield self.type_expr()
+        self.expect('rbrack')
+
+    def interface_decl(self):
+        print(self.current_token())
+        pos = self.current_token().pos
+        if self.accept_next('type'):
+            return TypeDeclaration(*self.new_type_expr(), pos=pos)
+        return self.name_declaration()
+
+    def name_declaration(self):
+        name = self.name()
+        self.expect('colon')
+        annotation = self.toplevel_type_expr()
+        return NameDeclaration(name, annotation, pos=name.pos)
+
     def expr_stmt(self):
         tlse = self.testlist_star_expr()
         if self.accept_next('colon'):
-            annotation = self.test()
+            annotation = self.type_expr()
             if self.accept_next('equal'):
                 return AnnotatedAssignment(
                     type='equal',
                     assignee=tlse,
                     expr=self.test(),
                     annotation=annotation)
-            return AnnotatedExpression(tlse, annotation)
+            return AnnotatedExpression(tlse, annotation, pos=tlse.pos)
         if self.accept(*self.augassign_tokens):
             augtype = self.get_token().type
             if self.accept_next('yield'):
@@ -367,6 +453,12 @@ class Parser:
         with self.show_virtuals():
             return self.compound_stmt()
 
+    def toplevel_stmt(self):
+        pos = self.current_token().pos
+        if self.accept_next('macro'):
+            return self.macrodef(pos)
+        return self.compound_stmt()
+
     def compound_stmt(self):
         if self.accept('if'):
             return self.if_stmt()
@@ -380,6 +472,8 @@ class Parser:
             return self.with_stmt()
         elif self.accept('def'):
             return self.funcdef()
+        elif self.accept('interface'):
+            return self.interfacedef()
         elif self.accept('class'):
             return self.classdef()
         elif self.accept('at'):
@@ -493,6 +587,24 @@ class Parser:
             return WithItem(expr=expr, assignee=self.expr())
         return WithItem(expr=expr, assignee=None)
 
+    def interface_suite(self):
+        if self.accept_next('newline'):
+            self.expect('indent')
+            exprs = []
+            while not self.accept_next('dedent'):
+                if self.accept_next('newline'):
+                    continue
+                exprs.append(self.interface_decl())
+            return exprs
+        return self.interface_decl()
+
+    def interfacedef(self):
+        pos = self.get_token().pos
+        name = self.name()
+        self.expect('colon')
+        body = self.interface_suite()
+        return InterfaceDefinition(name, body, pos)
+
     def classdef(self):
         pos = self.get_token().pos
         name = self.name()
@@ -534,12 +646,23 @@ class Parser:
         while self.accept_next('at'):
             yield self.decorator()
 
+    def macrodef(self, pos):
+        name = self.get_token('id').string
+        params = self.parameters()
+        if self.accept_next('arrow'):
+            return_annotation = self.type_expr()
+        else:
+            return_annotation = None
+        self.expect('colon')
+        suite = self.suite()
+        return MacroDefinition(name, params, suite, return_annotation, pos)
+
     def funcdef(self):
         pos = self.get_token().pos
         name = self.get_token('id').string
         params = self.parameters()
         if self.accept_next('arrow'):
-            return_annotation = self.test()
+            return_annotation = self.type_expr()
         else:
             return_annotation = None
         self.expect('colon')
@@ -605,7 +728,7 @@ class Parser:
     def tfpdef(self):
         name = self.get_token('id').string
         if self.accept_next('colon'):
-            annotation = self.test()
+            annotation = self.type_expr()
         else:
             annotation = None
         return (name, annotation)
@@ -617,7 +740,7 @@ class Parser:
             while not self.accept_next('dedent'):
                 if self.accept_next('newline'):
                     continue
-                stmts.append(self.stmt())
+                stmts.append(self.inner_stmt())
             return Statements(stmts)
         return self.simple_stmt()
 
@@ -635,7 +758,7 @@ class Parser:
     def _def_expr(self, pos):
         params = self.parameters()
         if self.accept_next('arrow'):
-            return_annotation = self.test()
+            return_annotation = self.type_expr()
         else:
             return_annotation = None
         self.expect('colon')
@@ -785,10 +908,11 @@ class Parser:
         return atom
 
     def quasiatom(self):
-        if self.accept_next('quasiquote'):
-            return Quasiquote(self.quasiatom())
+        pos = self.current_token().pos
+        if self.accept_next('backslash'):
+            return Quasiquote(self.quasiatom(), pos=pos)
         if self.accept_next('unquote'):
-            return Unquote(self.quasiatom())
+            return Unquote(self.quasiatom(), pos=pos)
         return self.atom()
 
     def trailer(self):

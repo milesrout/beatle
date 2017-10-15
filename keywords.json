@@ -29,10 +29,13 @@
 	"nonlocal",
 	"assert",
 	"class",
+	"interface",
+	"macro",
 	"or",
 	"and",
 	"not",
 	"is",
+	"type",
 	"None",
 	"True",
 	"False"

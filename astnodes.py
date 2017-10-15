@@ -22,18 +22,14 @@ class EmptyTupleExpression(Expression):
     def __repr__(self):
         return 'EmptyTupleExpression'
 
-class DictPair(Expression):
-    def __init__(self, key_expr, value_expr):
-        self.key_expr = key_expr 
-        self.value_expr = value_expr
-        self.pos = key_expr.pos
-
+# This is only used inside the parser, and is not present in the final AST
 class Comprehension(Expression):
     def __init__(self, expr, rest, pos):
         self.expr = expr
         self.rest = rest
         self.pos = pos
 
+# This is only used inside the parser, and is not present in the final AST
 class Literal(Expression):
     def __init__(self, exprs, pos, *, trailing_comma):
         self.exprs = exprs
@@ -73,6 +69,11 @@ class DictLiteral(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
+class DictPair(Expression):
+    def __init__(self, key_expr, value_expr):
+        self.key_expr = key_expr 
+        self.value_expr = value_expr
+        self.pos = key_expr.pos
 
 class ListLiteral(Expression):
     def __init__(self, exprs, pos):
@@ -85,16 +86,19 @@ class TupleLiteral(Expression):
         self.pos = pos
 
 class Quasiquote(Expression):
-    def __init__(self, expr):
+    def __init__(self, expr, pos):
         self.expr = expr
+        self.pos = pos
 
 class Unquote(Expression):
-    def __init__(self, expr):
+    def __init__(self, expr, pos):
         self.expr = expr
+        self.pos = pos
 
 class UnquoteSplice(Expression):
-    def __init__(self, expr):
+    def __init__(self, expr, pos):
         self.expr = expr
+        self.pos = pos
 
 class Lazy(Expression):
     def __init__(self, expr, pos):
@@ -112,17 +116,17 @@ class StarStarKwparam(Expression):
         self.pos = pos
 
 class Statements(Expression):
-    def __new__(self, stmts):
-        if len(stmts) == 1:
-            return stmts[0]
-        return super().__new__(self)
+    #def __new__(self, stmts):
+    #    if len(stmts) == 1:
+    #        return stmts[0]
+    #    return super().__new__(self)
     def __init__(self, stmts):
         self.stmts = stmts
         self.pos = stmts[0].pos
 
 class RaiseStatement(Expression):
-    def __init__(self, exprs, original, pos):
-        self.exprs = exprs
+    def __init__(self, expr, original, pos):
+        self.expr = expr
         self.original = original
         self.pos = pos
 
@@ -197,6 +201,14 @@ class TryStatement(Expression):
         self.finallies = finallies
         self.pos = pos
 
+class MacroDefinition(Expression):
+    def __init__(self, name, params, suite, return_annotation, pos):
+        self.name = name
+        self.params = params
+        self.suite = suite
+        self.return_annotation = return_annotation
+        self.pos = pos
+
 class FunctionDefinition(Expression):
     def __init__(self, name, params, suite, return_annotation, pos):
         self.name = name
@@ -218,8 +230,14 @@ class LambdaExpression(Expression):
         self.body = body
         self.pos = pos
 
+class InterfaceDefinition(Expression):
+    def __init__(self, name, body, pos):
+        self.name = name
+        self.body = body
+        self.pos = pos
+
 class ClassDefinition(Expression):
-    def __init__(self, name, bases, body):
+    def __init__(self, name, bases, body, pos):
         self.name = name
         self.bases = bases
         self.body = body
@@ -288,21 +306,24 @@ class ChainedAssignment(Expression):
         self.pos = assignees[0].pos
 
 class AnnotatedAssignment(Expression):
-    def __init__(self, type, assignee, expr, annotation):
+    def __init__(self, type, assignee, expr, annotation, pos):
         self.type = type
         self.assignee = assignee
         self.expr = expr
         self.annotation = annotation
+        self.pos = pos
 
 class AnnotatedExpression(Expression):
-    def __init__(self, expr, annotation):
+    def __init__(self, expr, annotation, pos):
         self.expr = expr
         self.annotation = annotation
+        self.pos = pos
 
 class AugmentedAssignment(Expression):
-    def __init__(self, op, expr):
+    def __init__(self, op, expr, pos):
         self.op = op
         self.expr = expr
+        self.pos = pos
 
 class StarStarExpr(Expression):
     def __init__(self, expr, pos):
@@ -518,8 +539,49 @@ class ContinueStatement(Expression):
         self.pos = pos
 
 class ReturnStatement(Expression):
-    def __init__(self, expr):
+    def __init__(self, expr, pos):
+        self.pos = pos
         self.expr = expr
+
+class TypeNameExpression(Expression):
+    def __init__(self, name):
+        self.name = name.name
+        self.pos = name.pos
+
+class TypeFunctionExpression(Expression):
+    def __init__(self, t1, t2):
+        self.t1 = t1
+        self.t2 = t2
+        self.pos = t1.pos
+
+class TypeTupleExpression(Expression):
+    def __init__(self, exprs, pos):
+        self.exprs = exprs
+        self.pos = pos
+
+class TypeForallExpression(Expression):
+    def __init__(self, tvars, expr, pos):
+        self.tvars = tvars
+        self.expr = expr
+        self.pos = pos
+
+class TypeCallExpression(Expression):
+    def __init__(self, atom, args):
+        self.atom = atom
+        self.args = args
+        self.pos = atom.pos
+
+class NameDeclaration(Expression):
+    def __init__(self, name, annotation, pos):
+        self.name = name
+        self.annotation = annotation
+        self.pos = pos
+
+class TypeDeclaration(Expression):
+    def __init__(self, name, args, pos):
+        self.name = name
+        self.args = args
+        self.pos = pos
 
 class Param(Expression):
     def __init__(self, name, annotation, default):

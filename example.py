@@ -39,21 +39,41 @@ if a == 0 or b == 1:
              zero_result
          else:
              nonzero_result)
+    raise RuntimeError('that is not valid!')
     print(str(a + b))
 
-# we don't do macroexpansion yet - need to do it before we do
-# type-checking unless I use structured binding types (λ_s calculus) to
-# have type-checked hygenic macros.
-#print(\[$x])
-#print([x])
+interface IQueue:
+    Queue[a]: type
 
-#\${1, 2, 3}
+    QueueError: Error
+    empty: Queue[a]
+    is_empty: Queue[a] -> bool
+    singleton: a -> Queue[a]
+    insert: (a, Queue[a]) -> Queue[a]
+    peek: Queue[a] -> a
+    remove: Queue[a] -> (a, Queue[a])
+
+# we don't do macroexpansion yet - need to do it before we do type-checking.
+# macro definitions are still parsed, but are removed by the macroexpander.
+# they just aren't actually *applied*.
+
+# unless I use structured binding types (λ_s calculus) to have type-checked
+# hygenic macros???
+
+macro log(e: Expression):
+    print(\[$e])
+    print([e])
+    \${1, 2, 3}
+    return \print(str(e), $e)
+
 
 x = (
         1,
         2,
         3
     )
+
+#log(x)
 
 print(str((1.0, 2.0, 3.0)))
 

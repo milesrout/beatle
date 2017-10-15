@@ -91,43 +91,62 @@ def tap(f):
         return inner
     return outer
 
-def overloadmethod(f):
-    registry = {}
-    @functools.wraps(f)
-    def overloaded(self, x, *args, **kwds):
-        for k, v in registry.items():
-            if isinstance(x, k):
-                r = v(self, x, *args, **kwds)
-                f(self, x, r)
-                return r
-        raise TypeError('no overload found for {}'.format(x.__class__))
-    def on(t):
-        def register(g):
-            if registry.get(t) is None:
-                registry[t] = g
-            else:
-                raise ValueError('can\'t overload on the same type twice')
-        return register
-    overloaded.on = on
-    return overloaded
+def overloadmethod(*, use_as_default=False, use_as_modifier=False):
+    if use_as_modifier and use_as_default:
+        raise ValueError('cannot use function both as the default and a modifier')
 
-def overload(f):
-    registry = {}
-    @functools.wraps(f)
-    def overloaded(x, *args, **kwds):
-        for k, v in registry.items():
-            if isinstance(x, k):
-                return v(x, *args, **kwds)
-        raise TypeError('no overload found for {}'.format(x.__class__))
-    def on(t):
-        def register(g):
-            if registry.get(t) is None:
-                registry[t] = g
+    def decorator(f):
+        registry = {}
+        @functools.wraps(f)
+        def overloaded(self, x, *args, **kwds):
+            for k, v in registry.items():
+                if isinstance(x, k):
+                    r = v(self, x, *args, **kwds)
+                    if use_as_modifier:
+                        f(self, x, r)
+                    return r
+            if use_as_default:
+                return f(self, x, *args, **kwds)
             else:
-                raise ValueError('can\'t overload on the same type twice')
-        return register
-    overloaded.on = on
-    return overloaded
+                raise TypeError('no overload found for {}'.format(x.__class__))
+        def on(t):
+            def register(g):
+                if registry.get(t) is None:
+                    registry[t] = g
+                else:
+                    raise ValueError('can\'t overload on the same type twice')
+            return register
+        overloaded.on = on
+        return overloaded
+    return decorator
+def overload(*, use_as_default=False, use_as_modifier=False):
+    if use_as_modifier and use_as_default:
+        raise ValueError('cannot use function both as the default and a modifier')
+
+    def decorator(f):
+        registry = {}
+        @functools.wraps(f)
+        def overloaded(x, *args, **kwds):
+            for k, v in registry.items():
+                if isinstance(x, k):
+                    r = v(x, *args, **kwds)
+                    if use_as_modifier:
+                        f(x, r)
+                    return r
+            if use_as_default:
+                return f(x, *args, **kwds)
+            else:
+                raise TypeError('no overload found for {}'.format(x.__class__))
+        def on(t):
+            def register(g):
+                if registry.get(t) is None:
+                    registry[t] = g
+                else:
+                    raise ValueError('can\'t overload on the same type twice')
+            return register
+        overloaded.on = on
+        return overloaded
+    return decorator
 
 def format_exception(exc):
     tb = exc.__traceback__

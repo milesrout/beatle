@@ -1,4 +1,5 @@
 import collections
+import contextlib
 import functools
 import itertools
 
@@ -28,6 +29,11 @@ class IntType(PrimitiveType):
     def __str__(self):
         return 'int'
 Int = IntType()
+
+class ErrorType(PrimitiveType):
+    def __str__(self):
+        return 'error'
+Error = ErrorType()
 
 class StringType(PrimitiveType):
     def __str__(self):
@@ -72,6 +78,26 @@ class TypeConstant(Type):
     def ftv(self):
         return set()
 
+class TypeCall(Type):
+    def __init__(self, con, ts):
+        self.con = con
+        self.ts = ts
+    def __str__(self):
+        params = ', '.join(map(str, self.ts))
+        return f'{self.con}[{params}]'
+    def apply(self, subst):
+        return TypeCall(self.con.apply(subst), [t.apply(subst) for t in self.ts])
+    def ftv(self):
+        if len(self.ts) == 0:
+            return self.con.ftv()
+        return set.union(self.con, ftv(), *[t.ftv() for t in self.ts])
+    def __eq__(self, other):
+        if isinstance(other, TypeCall):
+            if self.con == other.con:
+                if len(self.ts) == len(other.ts):
+                    return all(t == s for t, s in zip(self.ts, other.ts))
+        return False
+
 class ListType(Type):
     def __init__(self, t):
         self.t = t
@@ -115,6 +141,13 @@ class DictType(Type):
             return self.k == other.k and self.v == other.v
         return False
 
+class InterfaceType:
+    def __init__(self, types, names):
+        self.types = types
+        self.names = names
+    def __str__(self):
+        return 'interface({self.types}; {self.names})'
+
 class FunctionType(Type):
     def __init__(self, t1, t2):
         self.t1 = t1
@@ -149,6 +182,14 @@ BASE_ENVIRONMENT = {
     'print': TypeScheme([], FunctionType(String, Unit)),
     'str': TypeScheme(['a'], FunctionType(TypeVariable('a'), String)),
     'set': TypeScheme(['a'], FunctionType(Unit, SetType(TypeVariable('a')))),
+    'RuntimeError': TypeScheme([], FunctionType(String, Error)),
+}
+
+BASE_TYPE_ENVIRONMENT = {
+    'int': Int,
+    'float': Float,
+    'bool': Bool,
+    'error': Error,
 }
 
 BUILTIN_OPERATORS = {
@@ -158,8 +199,11 @@ BUILTIN_OPERATORS = {
 class Infer:
     def __init__(self):
         self.env = collections.ChainMap(BASE_ENVIRONMENT)
+        self.type_env = collections.ChainMap(BASE_TYPE_ENVIRONMENT)
         self.unifiers = []
         self.fresh_vars = (f'a{i}' for i in itertools.count(1))
+
+    ######
 
     def fresh(self):
         return TypeVariable(next(self.fresh_vars))
@@ -173,17 +217,42 @@ class Infer:
             raise ApeSyntaxError(msg=f'Unbound variable: {name}', pos=pos)
         return self.instantiate(scm)
 
-    @overloadmethod
+    ######
+
+    def parse_toplevel_type(self, ast):
+        if not isinstance(ast, TypeForallExpression):
+            raise ApeError(pos=ast.pos, msg='Unexpected type expression')
+        with self.subenv():
+            names = [tvar.name for tvar in ast.tvars]
+            self.type_env.update({name: TypeVariable(name) for name in names})
+            return TypeScheme(names, self.parse_type(ast.expr))
+
+    @overloadmethod()
+    def parse_type(self):
+        ...
+
+    @parse_type.on(TypeNameExpression)
+    def _(self, ast):
+        return self.type_env[ast.name]
+
+    @parse_type.on(TypeTupleExpression)
+    def _(self, ast):
+        return TupleType([self.parse_type(t) for t in ast.exprs])
+
+    @parse_type.on(TypeFunctionExpression)
+    def _(self, ast):
+        return FunctionType(self.parse_type(ast.t1), self.parse_type(ast.t2))
+
+    @parse_type.on(TypeCallExpression)
+    def _(self, ast):
+        con = self.parse_type(ast.atom)
+        return TypeCall(con, [self.parse_type(t) for t in ast.args])
+
+    ######
+
+    @overloadmethod(use_as_modifier=True)
     def infer(self, ast, t):
         ast.type = t
-
-    @infer.on(EmptyTupleExpression)
-    def _(self, ast):
-        return Unit
-
-    @infer.on(NoneExpression)
-    def _(self, ast):
-        return Unit
 
     @infer.on(EmptyListExpression)
     def _(self, ast):
@@ -196,16 +265,9 @@ class Infer:
         tv = self.fresh()
         return DictType(tk, tv)
 
-    @infer.on(ListLiteral)
+    @infer.on(EmptyTupleExpression)
     def _(self, ast):
-        tv = self.fresh()
-        ts = ListType(tv)
-        for expr in ast.exprs:
-            if isinstance(expr, StarExpr):
-                self.unify(ts, self.infer(expr.expr), expr.pos)
-            else:
-                self.unify(tv, self.infer(expr), expr.pos)
-        return ts
+        return Unit
 
     @infer.on(SetLiteral)
     def _(self, ast):
@@ -229,6 +291,41 @@ class Infer:
             else:
                 self.unify(tD, self.infer(expr.expr), expr.expr.pos)
         return tD
+
+    @infer.on(ListLiteral)
+    def _(self, ast):
+        tv = self.fresh()
+        ts = ListType(tv)
+        for expr in ast.exprs:
+            if isinstance(expr, StarExpr):
+                self.unify(ts, self.infer(expr.expr), expr.pos)
+            else:
+                self.unify(tv, self.infer(expr), expr.pos)
+        return ts
+
+    @infer.on(TupleLiteral)
+    def _(self, ast):
+        ts = [self.infer(expr) for expr in ast.exprs]
+        return TupleType(ts)
+
+    @infer.on(Lazy)
+    def _(self, ast):
+        return FunctionType(Unit, self.infer(ast))
+
+    @infer.on(RaiseStatement)
+    def _(self, ast):
+        t1 = self.infer(ast.expr)
+        self.unify(t1, Error, ast.expr.pos)
+
+        if ast.original is not None:
+            t2 = self.infer(ast.original)
+            self.unify(t2, Error, ast.original.pos)
+
+        return Unit
+
+    @infer.on(NoneExpression)
+    def _(self, ast):
+        return Unit
 
     @infer.on(StringExpression)
     def _(self, ast):
@@ -264,28 +361,21 @@ class Infer:
     @infer.on(IfElifElseStatement)
     def _(self, ast):
         tc1 = self.infer(ast.if_branch.cond)
-        tcs = [(self.infer(b.cond), b.cond.pos) for b in ast.elif_branches]
+        ts1 = self.infer(ast.if_branch.suite)
 
         self.unify(tc1, Bool, ast.pos)
-        for tc, pos in tcs:
-            self.unify(tc, Bool, pos)
 
-        ts1 = self.infer(ast.if_branch.suite)
-        tss = [self.infer(b.suite) for b in ast.elif_branches]
+        for br in ast.elif_branches:
+            t = self.infer(br.cond)
+            self.unify(t, Bool, br.cond.pos)
+            s = self.infer(br.suite)
+            self.unify(s, ts1, br.suite.pos)
 
         if ast.else_branch is not None:
             ts2 = self.infer(ast.else_branch.suite)
             self.unify(ts1, ts2, ast.else_branch.pos)
 
-        for ts in tss:
-            self.unify(ts1, ts, ast.pos)
-
         return ts1
-
-    @infer.on(TupleLiteral)
-    def _(self, ast):
-        ts = [self.infer(expr) for expr in ast.exprs]
-        return TupleType(ts)
 
     @infer.on(CallExpression)
     def _(self, ast):
@@ -326,16 +416,14 @@ class Infer:
 
     @infer.on(Statements)
     def _(self, ast):
-        ts = [(self.infer(stmt), stmt.pos) for stmt in ast.stmts]
-        for t, pos in ts:
-            self.unify(t, Unit, pos)
+        for stmt in ast.stmts:
+            self.unify(self.infer(stmt), Unit, stmt.pos)
         return Unit
 
     @infer.on(LogicalOrExpressions)
     def _(self, ast):
-        ts = [(self.infer(expr), expr.pos) for expr in ast.exprs]
-        for t, pos in ts:
-            self.unify(t, Bool, pos)
+        for expr in ast.exprs:
+            self.unify(self.infer(expr), Bool, expr.pos)
         return Bool
 
     @compose(list)
@@ -348,9 +436,8 @@ class Infer:
 
             if isinstance(p, Param):
                 if p.annotation:
-                    pass # we don't parse types properly yet
-                    # ta = self.understand_type_language(p.annotation)
-                    # self.unify(tv, ta)
+                    ta = self.parse_type(p.annotation)
+                    self.unify(tv, ta, p.annotation.pos)
 
                 if p.default:
                     td = self.infer(p.default)
@@ -370,33 +457,53 @@ class Infer:
             params = self.infer_params(ast.params)
             t = self.infer(ast.suite)
             if ast.return_annotation:
-                pass # we don't parse types properly yet
-                # tr = self.understand_type_language(ast.return_annotation)
-                # self.unify(t, tr)
+                tr = self.parse_type(p.return_annotation)
+                self.unify(t, tr, p.return_annotation.pos)
             return FunctionType(TupleType(params), t)
         finally:
             self.env = old
 
+    @infer.on(InterfaceDefinition)
+    def _(self, ast):
+        with self.subenv():
+            types = {}
+            names = {}
+            for decl in ast.body:
+                if isinstance(decl, TypeDeclaration):
+                    params = [expr.name for expr in decl.args]
+                    tvars = [TypeVariable(name) for name in params]
+                    types[decl.name.name] = self.type_env[decl.name.name] = TypeScheme(params, TypeCall(TypeConstant(decl.name), tvars))
+                elif isinstance(decl, NameDeclaration):
+                    scm = self.parse_toplevel_type(decl.annotation)
+                    name = decl.name.name
+                    names[name] = self.env[name] = scm
+                else: raise RuntimeError()
+            print(types, names)
+        self.type_env[ast.name.name] = InterfaceType(types, names)
+
+        return Unit
+
     @infer.on(FunctionDefinition)
     def _(self, ast):
-        old = self.env
-        self.env = self.env.new_child()
-        try:
+        with self.subenv():
             params = self.infer_params(ast.params)
             t = self.infer(ast.suite)
             if ast.return_annotation:
-                pass # we don't parse types properly yet
-                # tr = self.understand_type_language(ast.return_annotation)
-                # self.unify(t, tr)
+                tr = self.parse_type(p.return_annotation)
+                self.unify(t, tr, p.return_annotation.pos)
             typ = FunctionType(TupleType(params), t)
-        finally:
-            self.env = old
-            self.env[ast.name] = TypeScheme([], typ)
-            return Unit
+        self.env[ast.name] = TypeScheme([], typ)
+        return Unit
+
+    @contextlib.contextmanager
+    def subenv(self):
+        old, oldT = self.env, self.type_env
+        self.env = self.env.new_child()
+        self.type_env = self.type_env.new_child()
+        yield
+        self.env, self.type_env = old, oldT
 
     def unify(self, t1, t2, pos):
-        if isinstance(t1, TypeScheme) or isinstance(t2, TypeScheme):
-            raise RuntimeError('What???')
         self.unifiers.append(Constraint(t1, t2, pos))
 
 def infer(ast):

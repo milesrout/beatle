@@ -16,6 +16,7 @@ from itertools import groupby
 from utils import *
 import parser
 import scanner
+import macros
 import typechecker
 import codegen
 
@@ -35,7 +36,7 @@ def parse_args():
     parser.add_argument('-s', '--stacktrace', action='store_true', default=False,
                         help='enable printing of stacktraces on errors that are potentially user errors')
 
-    PHASES = ['SCAN', 'PARSE', 'TYPE', 'CODEGEN']
+    PHASES = ['SCAN', 'PARSE', 'MACROS', 'TYPES', 'CODEGEN']
     phases = parser.add_argument_group(title='phases of compilation')
 
     # These options *set* the phases, so they are mutually exclusive.
@@ -49,12 +50,15 @@ def parse_args():
     ph_mutex.add_argument('--parse', action='store_const',
                           dest='phases', const=['SCAN', 'PARSE'],
                           help='shorthand for --phase SCAN PARSE')
-    ph_mutex.add_argument('--type', action='store_const',
-                          dest='phases', const=['SCAN', 'PARSE', 'TYPE'],
-                          help='shorthand for --phase SCAN PARSE TYPE')
+    ph_mutex.add_argument('--macros', action='store_const',
+                          dest='phases', const=['SCAN', 'PARSE', 'MACROS'],
+                          help='shorthand for --phase SCAN PARSE MACROS')
+    ph_mutex.add_argument('--types', action='store_const',
+                          dest='phases', const=['SCAN', 'PARSE', 'MACROS', 'TYPES'],
+                          help='shorthand for --phase SCAN PARSE MACROS TYPES')
     ph_mutex.add_argument('--generate', action='store_const',
-                          dest='phases', const=['SCAN', 'PARSE', 'TYPE', 'CODEGEN'],
-                          help='shorthand for --phase SCAN PARSE TYPE CODEGEN')
+                          dest='phases', const=['SCAN', 'PARSE', 'MACROS', 'TYPES', 'CODEGEN'],
+                          help='shorthand for --phase SCAN PARSE MACROS TYPES CODEGEN')
 
     # The rest of the options *add to* the phases, so any combination can
     # be added.
@@ -83,8 +87,14 @@ def main():
     if 'PARSE' in args.phases and 'SCAN' not in args.phases:
         print('Unworkable --phase arguments: PARSE phase requires SCAN phase')
 
-    if 'CODEGEN' in args.phases and 'PARSE' not in args.phases:
-        print('Unworkable --phase arguments: CODEGEN phase requires SCAN, PARSE phases')
+    if 'MACROS' in args.phases and 'PARSE' not in args.phases:
+        print('Unworkable --phase arguments: MACROS phase requires SCAN and PARSE phases')
+
+    if 'TYPES' in args.phases and 'MACROS' not in args.phases:
+        print('Unworkable --phase arguments: TYPES phase requires SCAN, PARSE and MACROS phases')
+
+    if 'CODEGEN' in args.phases and 'TYPES' not in args.phases:
+        print('Unworkable --phase arguments: CODEGEN phase requires SCAN, PARSE, MACROS and TYPES phases')
 
     input_text = args.input.read()
 
@@ -120,7 +130,21 @@ def main():
         print('ast:')
         print(to_json(ast, indent=None if verbosity == 1 else 4))
 
-    if 'TYPE' not in args.phases:
+    if 'MACROS' not in args.phases:
+        return
+
+    try:
+        ast = macros.process(ast)
+    except ApeError as exc:
+        print('MACRO EXPANSION ERROR')
+        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
+        return
+
+    if verbosity >= 1:
+        print('macro-expanded ast:')
+        print(to_json(ast, indent=None if verbosity == 1 else 4))
+
+    if 'TYPES' not in args.phases:
         return
 
     try:
