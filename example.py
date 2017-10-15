@@ -43,7 +43,7 @@ if a == 0 or b == 1:
     print(str(a + b))
 
 interface IQueue:
-    Queue[a]: type
+    type Queue[a]
 
     QueueError: Error
     empty: Queue[a]

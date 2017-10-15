@@ -10,7 +10,7 @@
 	"finally",
 	"with",
 	"match",
-	"recur",
+	"case",
 	"as",
 	"async",
 	"yield",

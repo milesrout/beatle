@@ -46,15 +46,6 @@ variable_content_tokens = [
     'binary_int',
 ]
 
-irrelevant_content_tokens = ['newline', 'indent', 'dedent', 'EOF']
-
-PhysicalLine = namedtuple('PhysicalLine', 'pos tokens')
-IndentLine = namedtuple('IndentLine', 'indent pos content')
-LogicalLine = namedtuple('LogicalLine', 'pos content')
-
-def pairs_upto(n):
-    return zip(range(n - 1), range(1, n))
-
 def nviews(iterable, n, *, with_nones=False):
     iterables = tee(iterable, n)
     for i in range(len(iterables)):
@@ -64,14 +55,6 @@ def nviews(iterable, n, *, with_nones=False):
         return zip_longest(*reversed(iterables), fillvalue=None)
     else:
         return zip(*reversed(iterables))
-
-def precompose(f):
-    def outer(g):
-        @functools.wraps(g)
-        def inner(*args, **kwds):
-            return g(f(*args, **kwds))
-        return inner
-    return outer
 
 def compose(f):
     def outer(g):

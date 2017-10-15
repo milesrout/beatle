@@ -1,14 +1,7 @@
-def send(m, x):
-    match x:
-        case None:
+def send_many(ch, msgs):
+    match msgs:
+        case []:
             pass
-        case Msgs [x, xs...]:
-            m <- x
-            recur(m, xs)
-
-def send(m, [x, xs...]):
-    m <- x
-    recur(m, xs)
-
-def send(m, []):
-    pass
+        case [x, *xs]:
+            ch.send(x)
+            recur(ch, xs)

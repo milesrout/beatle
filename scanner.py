@@ -12,17 +12,13 @@ from itertools import groupby
 
 from utils import *
 
-VirtualLevel = namedtuple('VirtualLevel', 'token indent')
+IndentLine = namedtuple('IndentLine', 'indent pos endpos content')
 
 def is_newline(tok) -> bool:
     return tok.type == 'space' and tok.string == '\n'
 
 def is_space(tok) -> bool:
     return tok.type == 'space'
-
-def flatten(indent, pos, group):
-    return IndentLine(indent=indent, pos=pos,
-            content=list(itertools.chain.from_iterable(group)))
 
 def count_indent(token):
     if all(x == ' ' for x in token.string):
@@ -74,7 +70,7 @@ class Scanner:
             if len(line) == 0 and pos == -1:
                 pos = token.pos
             if is_newline(token):
-                yield IndentLine(indent=indent, pos=pos, content=line)
+                yield IndentLine(indent=indent, pos=pos, endpos=token.pos, content=line)
                 pos = -1
                 line = []
                 indent = 0
@@ -83,7 +79,8 @@ class Scanner:
                     indent += count_indent(token)
             else:
                 line.append(token)
-        yield IndentLine(indent=0, pos=len(self.input_text) - 1, content=[])
+        p = len(self.input_text) - 1
+        yield IndentLine(indent=0, pos=p, endpos=p, content=[])
 
     def remove_blank_lines(self, indented_lines):
         for line in indented_lines:
@@ -94,9 +91,11 @@ class Scanner:
         """Merge explicit continuation lines"""
         initial = None
         group = []
+        endpos = None
         for line in lines:
             if len(line.content) != 0 and line.content[-1].type == 'backslash':
                 group.extend(line.content)
+                endpos = line.endpos
                 group.pop()
                 initial = initial or line
             else:
@@ -104,14 +103,14 @@ class Scanner:
                     yield line
                 else:
                     group.extend(line.content)
-                    yield IndentLine(indent=initial.indent, pos=initial.pos, content=group)
+                    yield IndentLine(indent=initial.indent, pos=initial.pos, endpos=endpos, content=group)
                     initial = None
                     group = []
         if len(group) != 0:
             raise self.Error('cannot end with backslash-continuation line');
 
     def add_blank_line(self, lines):
-        return itertools.chain(lines, [IndentLine(indent=0, pos=len(self.input_text), content=[])])
+        return itertools.chain(lines, [IndentLine(indent=0, pos=len(self.input_text), endpos=len(self.input_text), content=[])])
 
     def parse_indentation(self, lines):
         stack = [0]
@@ -143,7 +142,7 @@ class Scanner:
                 elif stack[-1] is None:
                     stack[-1] = token.col - 1
                 yield token
-            yield self.Token('newline', '\n', pos=line.pos, virtual=len(stack) - 1)
+            yield self.Token('newline', '\n', pos=line.endpos, virtual=len(stack) - 1)
 
     def split_dedent_tokens(self, tokens):
         indent_stack = []
@@ -206,9 +205,7 @@ class Scanner:
 
         class Error(ApeSyntaxError):
             def __init__(this, msg, pos):
-                super().__init__(
-                    msg=msg,
-                    pos=pos)
+                super().__init__(msg=msg, pos=pos)
 
         class Token:
             def __init__(this, type, string, pos, virtual=0):

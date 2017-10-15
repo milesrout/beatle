@@ -131,8 +131,9 @@ class RaiseStatement(Expression):
         self.pos = pos
 
 class YieldExpression(Expression):
-    def __init__(self, exprs):
+    def __init__(self, exprs, pos):
         self.exprs = exprs
+        self.pos = pos
 
 class DelStatement(Expression):
     def __init__(self, exprs, pos):
@@ -176,6 +177,18 @@ class IfElifElseStatement(Expression):
         self.if_branch = if_branch
         self.elif_branches = elif_branches
         self.else_branch = else_branch
+        self.pos = pos
+
+class MatchStatement(Expression):
+    def __init__(self, expr, cases, pos):
+        self.expr = expr
+        self.cases = cases
+        self.pos = pos
+
+class MatchCase(Expression):
+    def __init__(self, pattern, body, pos):
+        self.pattern = pattern
+        self.body = body
         self.pos = pos
 
 class WhileStatement(Expression):
@@ -225,7 +238,7 @@ class FunctionExpression(Expression):
         self.pos = pos
 
 class LambdaExpression(Expression):
-    def __init__(self, args, body):
+    def __init__(self, args, body, pos):
         self.args = args
         self.body = body
         self.pos = pos
@@ -244,23 +257,23 @@ class ClassDefinition(Expression):
         self.pos = pos
 
 class WithStatement(Expression):
-    def __init__(self, items, body):
+    def __init__(self, items, body, pos):
         self.items = items
         self.body = body
         self.pos = pos
 
 class AsyncFunctionStatement(Expression):
-    def __init__(self, defn):
+    def __init__(self, defn, pos):
         self.defn = defn
         self.pos = pos
 
 class AsyncForStatement(Expression):
-    def __init__(self, for_stmt):
+    def __init__(self, for_stmt, pos):
         self.for_stmt = for_stmt
         self.pos = pos
 
 class AsyncWithStatement(Expression):
-    def __init__(self, with_stmt):
+    def __init__(self, with_stmt, pos):
         self.with_stmt = with_stmt
         self.pos = pos
 
@@ -281,9 +294,10 @@ class Decorator(Expression):
         self.args = args
 
 class Decorated(Expression):
-    def __init__(self, decorators, defn):
+    def __init__(self, decorators, defn, pos):
         self.decorators = decorators
         self.defn = defn
+        self.pos = pos
 
 class ImportName(Expression):
     def __init__(self, name, alias):
@@ -291,14 +305,16 @@ class ImportName(Expression):
         self.alias = alias
 
 class ImportStatement(Expression):
-    def __init__(self, names):
+    def __init__(self, names, pos):
         self.names = names
+        self.pos = pos
 
 class FromImportStatement(Expression):
-    def __init__(self, name, dots, what):
+    def __init__(self, name, dots, what, pos):
         self.name = name
         self.dots = dots
         self.what = what
+        self.pos = pos
 
 class ChainedAssignment(Expression):
     def __init__(self, assignees):
@@ -320,7 +336,8 @@ class AnnotatedExpression(Expression):
         self.pos = pos
 
 class AugmentedAssignment(Expression):
-    def __init__(self, op, expr, pos):
+    def __init__(self, assignee, op, expr, pos):
+        self.assignee = assignee
         self.op = op
         self.expr = expr
         self.pos = pos
@@ -615,7 +632,7 @@ class ComparisonChain(Expression):
         gets translated to (('0', 'lt', 'x') && ('x', 'le' '1'))
         """
         split = list(nviews(chain, 3))[::2]
-        combined = functools.reduce(LogicalAndExpressions,
+        combined = functools.reduce((lambda a, b: LogicalAndExpressions([a, b])),
             (Comparison(op, a, b, pos) for a, op, b in split))
         return combined
 
