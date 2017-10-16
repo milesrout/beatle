@@ -11,13 +11,16 @@ m = [4, 5, 6]
 zero_result = 0
 nonzero_result = 1
 
-def foo(x, y, z, *q):
+def foo(x, y, z):
+    raise RuntimeError('what?')
+    #yield x
+    #yield y
+    #yield z
+
+def bar(x, bar=None):
     pass
 
-def bar(x, *, bar=None):
-    pass
-
-def baz(trailing_comma=1, **foo):
+def baz(trailing_comma=1):
     pass
 
 if a != 0:
@@ -42,16 +45,19 @@ if a == 0 or b == 1:
     raise RuntimeError('that is not valid!')
     print(str(a + b))
 
-interface IQueue:
-    type Queue[a]
+interface Queue:
+    type queue[a]
 
-    QueueError: Error
-    empty: Queue[a]
-    is_empty: Queue[a] -> bool
-    singleton: a -> Queue[a]
-    insert: (a, Queue[a]) -> Queue[a]
-    peek: Queue[a] -> a
-    remove: Queue[a] -> (a, Queue[a])
+    queue_error:     error
+    empty:       ∀a. queue[a]
+    is_empty:    ∀a. queue[a] → bool
+    singleton:   ∀a. a → queue[a]
+    insert:      ∀a. (a, queue[a]) → queue[a]
+    peek:        ∀a. queue[a] → a
+    remove:      ∀a. queue[a] → (a, queue[a])
+
+    law ∀x. is_empty(x) == (x is empty)
+    law ∀x. is_empty(x) == (peek(x) is queue_error)
 
 # we don't do macroexpansion yet - need to do it before we do type-checking.
 # macro definitions are still parsed, but are removed by the macroexpander.

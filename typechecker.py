@@ -40,10 +40,47 @@ class StringType(PrimitiveType):
         return 'string'
 String = StringType()
 
+class VoidType(PrimitiveType):
+    """This should not be instantiated ANYWHERE!
+    
+    This type exists to be unified with type variables that are required to be
+    unconstrained."""
+    def __str__(self):
+        return 'void'
+Void = VoidType()
+
+class CoroutineType(Type):
+    def __init__(self, ytype, stype, rtype):
+        self.ytype = ytype
+        self.stype = stype
+        self.rtype = rtype
+    def __str__(self):
+        if self.stype == Unit:
+            if self.rtype == Unit:
+                return f'generator[{self.ytype}]'
+            else:
+                return f'generator[{self.ytype}, {self.rtype}]'
+        else:
+            if self.rtype == Unit:
+                return f'coroutine[{self.ytype}, {self.stype}]'
+            else:
+                return f'coroutine[{self.ytype}, {self.stype}, {self.rtype}]'
+    def apply(self, subst):
+        return CoroutineType(
+            self.ytype.apply(subst),
+            self.stype.apply(subst),
+            self.rtype.apply(subst))
+    def ftv(self):
+        return set.union(self.ytype.ftv(), self.stype.ftv(), self.rtype.ftv())
+
 class TupleType(Type):
     def __init__(self, ts):
         self.ts = ts
     def __str__(self):
+        if len(self.ts) == 0:
+            return 'unit'
+        if len(self.ts) == 1:
+            return str(self.ts[0])
         return '(' + ' ✗ '.join(map(str, self.ts)) + ')'
     def apply(self, subst):
         return TupleType([t.apply(subst) for t in self.ts])
@@ -207,6 +244,31 @@ class Infer:
         self.unifiers = []
         self.fresh_vars = (f'a{i}' for i in itertools.count(1))
 
+        class Types:
+            def __init__(this, vtype=None, *, rtype=None, ytype=None, stype=None, ctype=None):
+                this.vtype = vtype or self.fresh()
+                this.rtype = rtype or self.fresh()
+                this.ytype = ytype or self.fresh()
+                this.stype = stype or self.fresh()
+                this.ctype = ctype or self.fresh()
+
+            def but(this, vtype=None, *, rtype=None, ytype=None, stype=None, ctype=None):
+                return Types(vtype=vtype or this.vtype,
+                             rtype=rtype or this.rtype,
+                             ytype=ytype or this.ytype,
+                             stype=stype or this.stype,
+                             ctype=ctype or this.ctype)
+
+            @staticmethod
+            def void(vtype=None, *, rtype=None, ytype=None, stype=None, ctype=None):
+                return Types(vtype=vtype or Void,
+                             rtype=rtype or Void,
+                             ytype=ytype or Void,
+                             stype=stype or Void,
+                             ctype=ctype or Void)
+
+        self.Types = Types
+
     ######
 
     def fresh(self):
@@ -215,11 +277,20 @@ class Infer:
     def instantiate(self, scm):
         return scm.t.apply({tvar: self.fresh() for tvar in scm.tvars})
 
-    def lookup(self, name, pos):
+    def generalise(self, t):
+        ftv = t.ftv() - set.union(*(ty.ftv() for ty in self.env.values()))
+        return TypeScheme(list(ftv), t)
+
+    def lookup_env(self, name, pos):
         scm = self.env.get(name, None)
         if scm is None:
             raise ApeSyntaxError(msg=f'Unbound variable: {name}', pos=pos)
         return self.instantiate(scm)
+
+    def add_env(self, name, t):
+        sub = solve({}, self.unifiers)
+        self.env.update({name: ty.apply(sub) for name, ty in self.env.items()})
+        self.env[name] = self.generalise(t.apply(sub))
 
     ######
 
@@ -259,216 +330,275 @@ class Infer:
 
     @overloadmethod(use_as_modifier=True, error_function=infer_error)
     def infer(self, ast, t):
-        ast.type = t
+        ast.type = t.vtype
 
     @infer.on(EmptyListExpression)
     def _(self, ast):
         tv = self.fresh()
-        return ListType(tv)
+        return self.Types(ListType(tv))
 
     @infer.on(EmptyDictExpression)
     def _(self, ast):
         tk = self.fresh()
         tv = self.fresh()
-        return DictType(tk, tv)
+        return self.Types(DictType(tk, tv))
 
     @infer.on(EmptyTupleExpression)
     def _(self, ast):
-        return Unit
+        return self.Types(Unit)
 
     @infer.on(SetLiteral)
     def _(self, ast):
-        tv = self.fresh()
-        ts = SetType(tv)
+        tv = self.Types(self.fresh())
+        ts = tv.but(SetType(tv.vtype))
         for expr in ast.exprs:
             if isinstance(expr, StarExpr):
-                self.unify(ts, self.infer(expr.expr), expr.pos)
+                self.unify_all(ts, self.infer(expr.expr), expr.pos)
             else:
-                self.unify(tv, self.infer(expr), expr.pos)
+                self.unify_all(tv, self.infer(expr), expr.pos)
         return ts
 
     @infer.on(DictLiteral)
     def _(self, ast):
-        tK, tV = self.fresh(), self.fresh()
-        tD = DictType(tK, tV)
+        tk, tv = self.fresh(), self.fresh()
+        tD = self.Types(DictType(tk, tv))
+        tK, tV = tD.but(tk), tD.but(tv)
         for expr in ast.exprs:
             if isinstance(expr, DictPair):
-                self.unify(tK, self.infer(expr.key_expr), expr.key_expr.pos)
-                self.unify(tV, self.infer(expr.value_expr), expr.value_expr.pos)
+                self.unify_all(tK, self.infer(expr.key_expr), expr.key_expr.pos)
+                self.unify_all(tV, self.infer(expr.value_expr), expr.value_expr.pos)
             else:
-                self.unify(tD, self.infer(expr.expr), expr.expr.pos)
+                self.unify_all(tD, self.infer(expr.expr), expr.expr.pos)
         return tD
 
     @infer.on(ListLiteral)
     def _(self, ast):
-        tv = self.fresh()
-        ts = ListType(tv)
+        tv = self.Types(self.fresh())
+        ts = tv.but(ListType(tv.vtype))
         for expr in ast.exprs:
             if isinstance(expr, StarExpr):
-                self.unify(ts, self.infer(expr.expr), expr.pos)
+                self.unify_all(ts, self.infer(expr.expr), expr.pos)
             else:
-                self.unify(tv, self.infer(expr), expr.pos)
+                self.unify_all(tv, self.infer(expr), expr.pos)
         return ts
 
     @infer.on(TupleLiteral)
     def _(self, ast):
         ts = [self.infer(expr) for expr in ast.exprs]
-        return TupleType(ts)
+        tt = self.Types(TupleType([t.vtype for t in ts]))
+        for t, expr in zip(ts, ast.exprs):
+            self.unify_others(tt, t, expr.pos)
+
+        return tt
 
     @infer.on(Lazy)
     def _(self, ast):
-        return FunctionType(Unit, self.infer(ast))
+        #return self.Types(FunctionType(Unit, self.infer(ast)))
+        raise NotImplementedError('Haven\'t figured out laziness yet')
 
     @infer.on(RaiseStatement)
     def _(self, ast):
         t1 = self.infer(ast.expr)
-        self.unify(t1, Error, ast.expr.pos)
+        self.unify(t1.vtype, t1.ctype, ast.expr.pos)
 
         if ast.original is not None:
             t2 = self.infer(ast.original)
-            self.unify(t2, Error, ast.original.pos)
+            self.unify_all(t1, t2, ast.original.pos)
 
-        return Unit
+        return t1.but(vtype=self.fresh())
 
     @infer.on(NoneExpression)
     def _(self, ast):
-        return Unit
+        return self.Types(Unit)
 
     @infer.on(StringExpression)
     def _(self, ast):
-        return String
+        return self.Types(String)
 
     @infer.on(FloatExpression)
     def _(self, ast):
-        return Float
+        return self.Types(Float)
 
     @infer.on(IntExpression)
     def _(self, ast):
-        return Int
+        return self.Types(Int)
 
     @infer.on(IfElseExpr)
     def _(self, ast):
         t1 = self.infer(ast.cond)
         t2 = self.infer(ast.expr)
         t3 = self.infer(ast.alt)
-        self.unify(t1, Bool, ast.cond.pos)
-        self.unify(t2, t3, ast.expr.pos)
+        self.unify_all(t1, self.Types(Bool), ast.cond.pos)
+        self.unify_all(t2, t3, ast.expr.pos)
         return t2
 
     @infer.on(ArithExpression)
     def _(self, ast):
         t1 = self.infer(ast.left)
         t2 = self.infer(ast.right)
+        self.unify_others(t1, t2, ast.pos)
+
         tv = self.fresh()
-        u1 = FunctionType(TupleType([t1, t2]), tv)
+        u1 = FunctionType(TupleType([t1.vtype, t2.vtype]), tv)
         u2 = self.instantiate(BUILTIN_OPERATORS[ast.op])
         self.unify(u1, u2, ast.pos)
-        return tv
+
+        return t1.but(tv)
+
+    @infer.on(ReturnStatement)
+    def _(self, ast):
+        t = self.infer(ast.expr)
+        self.unify(t.vtype, t.rtype, ast.pos)
+        return t
+
+    @infer.on(PassStatement)
+    def _(self, ast):
+        return self.Types(Unit)
 
     @infer.on(IfElifElseStatement)
     def _(self, ast):
-        tc1 = self.infer(ast.if_branch.cond)
-        ts1 = self.infer(ast.if_branch.suite)
+        tc = self.infer(ast.if_branch.cond)
+        self.unify(tc.vtype, Bool, ast.pos)
 
-        self.unify(tc1, Bool, ast.pos)
+        ts = self.infer(ast.if_branch.body)
+        self.unify_others(tc, ts, ast.pos)
 
         for br in ast.elif_branches:
-            t = self.infer(br.cond)
-            self.unify(t, Bool, br.cond.pos)
-            s = self.infer(br.suite)
-            self.unify(s, ts1, br.suite.pos)
+            c = self.infer(br.cond)
+            self.unify_all(c, tc, br.cond.pos)
+
+            s = self.infer(br.body)
+            self.unify_all(s, ts, br.body.pos)
 
         if ast.else_branch is not None:
-            ts2 = self.infer(ast.else_branch.suite)
-            self.unify(ts1, ts2, ast.else_branch.pos)
+            s = self.infer(ast.else_branch.body)
+            self.unify_all(s, ts, ast.else_branch.pos)
 
-        return ts1
+        return ts
 
     @infer.on(CallExpression)
     def _(self, ast):
-        t1 = self.infer(ast.atom)
-        ts = TupleType([self.infer(arg) for arg in ast.args])
+        ta = self.infer(ast.atom)
+        ts = [self.infer(arg) for arg in ast.args]
+        for t in ts:
+            self.unify_others(t, ta, ast.pos)
+
+        tt = TupleType([t.vtype for t in ts])
+
         tv = self.fresh()
-        self.unify(t1, FunctionType(ts, tv), ast.pos)
-        return tv
+        self.unify(ta.vtype, FunctionType(tt, tv), ast.pos)
+        return ta.but(tv)
 
     @infer.on(ChainedAssignment)
     def _(self, ast):
         assignees = ast.assignees[:-1]
         expr = ast.assignees[-1]
 
-        t1 = self.infer(expr)
+        te = self.infer(expr)
         ts = []
         for a in assignees:
             if isinstance(a, IdExpression):
                 t = self.fresh()
                 self.env[a.name] = TypeScheme([], t)
                 ts.append((t, a.pos))
+            else: raise ApeSyntaxError(pos=a.pos, msg=f'Cannot assign to {a.__class__.__name__}')
 
         for t, pos in ts:
-            self.unify(t1, t, pos)
+            self.unify(te.vtype, t, pos)
 
-        return Unit
+        return te.but(Unit)
 
     @infer.on(Comparison)
     def _(self, ast):
         t1 = self.infer(ast.a)
         t2 = self.infer(ast.b)
-        self.unify(t1, t2, ast.pos)
-        return Bool
+        self.unify_all(t1, t2, ast.pos)
+        return t1.but(Bool)
 
     @infer.on(IdExpression)
     def _(self, ast):
-        return self.lookup(ast.name, ast.pos)
+        return self.Types(self.lookup_env(ast.name, ast.pos))
+
+    @infer.on(YieldExpression)
+    def _(self, ast):
+        t = self.infer(ast.expr)
+        self.unify(t.vtype, t.ytype, ast.pos)
+        return t.but(t.stype)
 
     @infer.on(Statements)
     def _(self, ast):
-        for stmt in ast.stmts:
-            self.unify(self.infer(stmt), Unit, stmt.pos)
-        return Unit
+        t = self.Types()
+        for i, stmt in enumerate(ast.stmts):
+            if i == len(ast.stmts) - 1:
+                self.unify_all(self.infer(stmt), t, stmt.pos)
+            else:
+                self.unify_all(self.infer(stmt), t.but(Unit), stmt.pos)
+        return t
 
     @infer.on(LogicalOrExpressions)
     def _(self, ast):
+        t = self.Types(Bool)
         for expr in ast.exprs:
-            self.unify(self.infer(expr), Bool, expr.pos)
-        return Bool
+            self.unify_all(self.infer(expr), t, expr.pos)
+        return t
 
-    @compose(list)
     def infer_params(self, params):
+        # default parameters are evaluated at definition site
+        tD = self.Types()
+        ts = []
+        env = {}
         for p in params:
-            if isinstance(p, EndOfPosParams):
-                continue
-            tv = self.fresh()
-            self.env[p.name] = TypeScheme([], tv)
-
             if isinstance(p, Param):
+                tv = self.fresh()
+                env[p.name] = TypeScheme([], tv)
                 if p.annotation:
                     ta = self.parse_type(p.annotation)
                     self.unify(tv, ta, p.annotation.pos)
-
                 if p.default:
                     td = self.infer(p.default)
-                    self.unify(tv, td, p.default.pos)
+                    self.unify(tv, td.vtype, p.default.pos)
+                    self.unify_others(tD, td, p.default.pos)
+                ts.append(tv)
+            else: raise NotImplementedError(f'{p.__class__.__name__} is not supported yet')
 
-            yield tv
+        # can't have these in the environment when type-inferring defaults
+        # so add the parameters to the environment at the end.
+        self.env.update(env)
+        return ts, tD
 
-    @infer.on(PassStatement)
-    def _(self, ast):
-        return Unit
+    def infer_function(self, ast):
+        with self.subenv():
+            params, default_effects = self.infer_params(ast.params)
+
+            t = self.fresh()
+            tb = self.infer(ast.body)
+            self.unify(tb.vtype, t, ast.pos)
+            self.unify(tb.rtype, t, ast.pos)
+
+            if ast.body.is_gen():
+                y, s = self.fresh(), self.fresh()
+                self.unify(tb.ytype, y, ast.pos)
+                self.unify(tb.stype, s, ast.pos)
+                tr = CoroutineType(y, s, t)
+            else:
+                tr = t
+
+            if ast.return_annotation:
+                ta = self.parse_type(p.return_annotation)
+                self.unify(tr, ta, p.return_annotation.pos)
+            tf = FunctionType(TupleType(params), tr)
+        return default_effects, tf
 
     @infer.on(FunctionExpression)
     def _(self, ast):
-        old = self.env
-        self.env = self.env.new_child()
-        try:
-            params = self.infer_params(ast.params)
-            t = self.infer(ast.suite)
-            if ast.return_annotation:
-                tr = self.parse_type(p.return_annotation)
-                self.unify(t, tr, p.return_annotation.pos)
-            return FunctionType(TupleType(params), t)
-        finally:
-            self.env = old
+        default_effects, tf = self.infer_function(ast)
+        return default_effects.but(tf)
+
+    @infer.on(FunctionDefinition)
+    def _(self, ast):
+        default_effects, tf = self.infer_function(ast)
+        self.add_env(ast.name, tf)
+        return default_effects.but(Unit)
 
     @infer.on(InterfaceDefinition)
     def _(self, ast):
@@ -478,9 +608,9 @@ class Infer:
             for decl in ast.body:
                 if isinstance(decl, TypeDeclaration):
                     if len(decl.args) == 0:
-                        # declaration of type
+                        pass# declaration of type
                     else:
-                        # declaration of type *constructor*
+                        pass# declaration of type *constructor*
                     params = [expr.name for expr in decl.args]
                     tvars = [TypeVariable(name) for name in params]
                     types[decl.name.name] = self.type_env[decl.name.name] = TypeScheme(params, TypeCall(TypeConstant(decl.name.name), tvars))
@@ -492,23 +622,12 @@ class Infer:
                     with self.subenv():
                         self.env.update({name.name: TypeScheme([], self.fresh()) for name in decl.names})
                         t = self.infer(decl.expr)
-                        self.unify(t, Bool, decl.pos)
+                        law_type = self.Types.void(Bool)
+                        self.unify_all(t, law_type, decl.pos)
                 else: raise RuntimeError()
+
         self.type_env[ast.name.name] = InterfaceType(types, names)
-
-        return Unit
-
-    @infer.on(FunctionDefinition)
-    def _(self, ast):
-        with self.subenv():
-            params = self.infer_params(ast.params)
-            t = self.infer(ast.suite)
-            if ast.return_annotation:
-                tr = self.parse_type(p.return_annotation)
-                self.unify(t, tr, p.return_annotation.pos)
-            typ = FunctionType(TupleType(params), t)
-        self.env[ast.name] = TypeScheme([], typ)
-        return Unit
+        return self.Types(Unit)
 
     @contextlib.contextmanager
     def subenv(self):
@@ -518,6 +637,19 @@ class Infer:
         yield
         self.env, self.type_env = old, oldT
 
+    def unify_others(self, T1, T2, pos):
+        self.unify(T1.rtype, T2.rtype, pos)
+        self.unify(T1.ytype, T2.ytype, pos)
+        self.unify(T1.stype, T2.stype, pos)
+        self.unify(T1.ctype, T2.ctype, pos)
+
+    def unify_all(self, T1, T2, pos):
+        self.unify(T1.vtype, T2.vtype, pos)
+        self.unify(T1.rtype, T2.rtype, pos)
+        self.unify(T1.ytype, T2.ytype, pos)
+        self.unify(T1.stype, T2.stype, pos)
+        self.unify(T1.ctype, T2.ctype, pos)
+
     def unify(self, t1, t2, pos):
         self.unifiers.append(Constraint(t1, t2, pos))
 
@@ -525,6 +657,11 @@ def infer(ast):
     i = Infer()
     t = i.infer(ast)
     s = solve({}, i.unifiers)
+    for k, v in i.env.items():
+        print(k, v.apply(s))
+    return back_substitute(ast, s)
+
+def back_substitute(ast, subst):
     return ast
 
 def bind(tvar, t):

@@ -18,7 +18,7 @@ def to_json(x, indent=None):
 class MyJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, Type):
-            return (o.__class__.__name__, vars(o))
+            return str(o)
         if isinstance(o, Expression):
             return (o.__class__.__name__, vars(o))
         if o.__class__.__name__ == 'Token':

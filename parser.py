@@ -236,7 +236,8 @@ class Parser:
     def return_stmt(self, pos):
         if self.accept('semicolon', 'newline'):
             return ReturnStatement(None, pos)
-        return ReturnStatement(self.testlist(), pos)
+        exprs = self.testlist()
+        return ReturnStatement(TupleLiteral(exprs, exprs[0].pos), pos)
         #return ReturnStatement(self.testlist('newline'))
 
     def raise_expr(self, pos):
@@ -249,10 +250,11 @@ class Parser:
 
     def yield_expr(self, pos, *terminators):
         if self.accept_next('from'):
-            return YieldExpression(exprs=[self.test()], pos=pos)
+            return YieldExpression(expr=self.test(), pos=pos)
         if self.accept(*terminators):
-            return YieldExpression(exprs=[], pos=pos)
-        return YieldExpression(exprs=self.testlist(), pos=pos)
+            return YieldExpression(expr=TupleLiteral([], pos=pos), pos=pos)
+        exprs = self.testlist()
+        return YieldExpression(expr=TupleLiteral(exprs, exprs[0].pos), pos=pos)
 
     def import_stmt(self, pos):
         if self.accept_next('from'):
@@ -544,17 +546,19 @@ class Parser:
             else_branch = ElseBranch(self.suite(), pos)
         return IfElifElseStatement(if_branch, elif_branches, else_branch, pos)
 
-    def async_funcdef(self, pos):
-        self.expect_get('def')
-        return AsyncFunctionStatement(self.funcdef(), pos)
+    def async_funcdef(self, async_pos):
+        def_pos = self.current_token().pos
+        self.expect('def')
+        return AsyncFunctionStatement(self.funcdef(def_pos), async_pos)
 
-    def async_stmt(self, pos):
+    def async_stmt(self, async_pos):
+        pos = self.current_token().pos
         if self.accept_next('def'):
-            return AsyncFunctionStatement(self.funcdef(), pos)
+            return AsyncFunctionStatement(self.funcdef(pos), pos=async_pos)
         if self.accept_next('with'):
-            return AsyncWithStatement(self.with_stmt(), pos)
+            return AsyncWithStatement(self.with_stmt(pos), pos=async_pos)
         if self.accept_next('for'):
-            return AsyncForStatement(self.for_stmt(), pos)
+            return AsyncForStatement(self.for_stmt(pos), pos=async_pos)
         self.raise_unexpected()
 
     def while_stmt(self, pos):
