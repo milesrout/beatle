@@ -1,5 +1,5 @@
 
-class X:
+module X:
     def hello(world):
         def foo():
             pass; \
@@ -10,7 +10,7 @@ class X:
                    'World!',
                    'Yeah!')
 
-class Foo:
+module Foo:
     def expr_stmt(self):
         tlse = self.testlist_star_expr()
         if self.accept_next('colon'):

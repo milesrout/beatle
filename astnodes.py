@@ -267,13 +267,13 @@ class LambdaExpression(Expression):
         self.body = body
         self.pos = pos
 
-class InterfaceDefinition(Expression):
+class SignatureDefinition(Expression):
     def __init__(self, name, body, pos):
         self.name = name
         self.body = body
         self.pos = pos
 
-class ClassDefinition(Expression):
+class ModuleDefinition(Expression):
     def __init__(self, name, bases, body, pos):
         self.name = name
         self.bases = bases
@@ -284,21 +284,6 @@ class WithStatement(Expression):
     def __init__(self, items, body, pos):
         self.items = items
         self.body = body
-        self.pos = pos
-
-class AsyncFunctionStatement(Expression):
-    def __init__(self, defn, pos):
-        self.defn = defn
-        self.pos = pos
-
-class AsyncForStatement(Expression):
-    def __init__(self, for_stmt, pos):
-        self.for_stmt = for_stmt
-        self.pos = pos
-
-class AsyncWithStatement(Expression):
-    def __init__(self, with_stmt, pos):
-        self.with_stmt = with_stmt
         self.pos = pos
 
 class ExceptBlock(Expression):
@@ -571,8 +556,7 @@ class CompForArg(Expression):
         self.comp = comp
 
 class CompForClause(Expression):
-    def __init__(self, is_async, exprs, iterable):
-        self.is_async = is_async 
+    def __init__(self, exprs, iterable):
         self.exprs = exprs 
         self.iterable = iterable
 

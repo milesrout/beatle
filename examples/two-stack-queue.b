@@ -1,7 +1,7 @@
 from stack import Stack
 from queue import Queue
 
-class TwoStackQueue(S: Stack) -> Queue:
+module TwoStackQueue(S: Stack) -> Queue:
     type queue[a] = (S.stack[a], S.stack[a])
 
     queue_error = Error("Queue error")

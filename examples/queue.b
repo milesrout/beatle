@@ -1,4 +1,4 @@
-interface Queue:
+signature Queue:
     type queue[a]
 
     queue_error:     error

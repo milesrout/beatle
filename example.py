@@ -45,7 +45,7 @@ if a == 0 or b == 1:
     raise RuntimeError('that is not valid!')
     print(str(a + b))
 
-interface Queue:
+signature Queue:
     type queue[a]
 
     queue_error:     error

@@ -16,7 +16,7 @@ class Parser:
     small_expr_tokens = ('del pass assert global nonlocal break continue '
                          'return raise import from').split()
     compound_tokens = ('if while for try with def match '
-                       'class interface at async').split()
+                       'module signature at').split()
     toplevel_tokens = ['macro', *compound_tokens]
     ops = 'plus minus times matmul div mod and or xor lsh rsh exp'.split()
     augassign_tokens = [f'aug_{op}' for op in ops]
@@ -397,7 +397,7 @@ class Parser:
             yield self.type_expr()
         self.expect('rbrack')
 
-    def interface_decl(self):
+    def signature_decl(self):
         pos = self.current_token().pos
         if self.accept_next('type'):
             return self.type_decl(pos)
@@ -478,7 +478,7 @@ class Parser:
     def toplevel_stmt(self):
         pos = self.current_token().pos
         if self.accept_next('macro'):
-            return self.macrodef(pos)
+            return self.macro_def(pos)
         return self.compound_stmt()
 
     def compound_stmt(self):
@@ -494,15 +494,13 @@ class Parser:
         elif self.accept_next('with'):
             return self.with_stmt(pos)
         elif self.accept_next('def'):
-            return self.funcdef(pos)
-        elif self.accept_next('interface'):
-            return self.interfacedef(pos)
-        elif self.accept_next('class'):
-            return self.classdef(pos)
+            return self.func_def(pos)
+        elif self.accept_next('signature'):
+            return self.signature_def(pos)
+        elif self.accept_next('module'):
+            return self.module_def(pos)
         elif self.accept_next('at'):
             return self.decorated(pos)
-        elif self.accept_next('async'):
-            return self.async_stmt(pos)
         elif self.accept_next('match'):
             return self.match_stmt(pos)
         self.raise_unexpected()
@@ -545,21 +543,6 @@ class Parser:
             self.expect('colon')
             else_branch = ElseBranch(self.suite(), pos)
         return IfElifElseStatement(if_branch, elif_branches, else_branch, pos)
-
-    def async_funcdef(self, async_pos):
-        def_pos = self.current_token().pos
-        self.expect('def')
-        return AsyncFunctionStatement(self.funcdef(def_pos), async_pos)
-
-    def async_stmt(self, async_pos):
-        pos = self.current_token().pos
-        if self.accept_next('def'):
-            return AsyncFunctionStatement(self.funcdef(pos), pos=async_pos)
-        if self.accept_next('with'):
-            return AsyncWithStatement(self.with_stmt(pos), pos=async_pos)
-        if self.accept_next('for'):
-            return AsyncForStatement(self.for_stmt(pos), pos=async_pos)
-        self.raise_unexpected()
 
     def while_stmt(self, pos):
         cond = self.test()
@@ -633,24 +616,24 @@ class Parser:
             return WithItem(expr=expr, assignee=self.expr())
         return WithItem(expr=expr, assignee=None)
 
-    def interface_suite(self):
+    def signature_suite(self):
         if self.accept_next('newline'):
             self.expect('indent')
             exprs = []
             while not self.accept_next('dedent'):
                 if self.accept_next('newline'):
                     continue
-                exprs.append(self.interface_decl())
+                exprs.append(self.signature_decl())
             return exprs
-        return self.interface_decl()
+        return self.signature_decl()
 
-    def interfacedef(self, pos):
+    def signature_def(self, pos):
         name = self.name()
         self.expect('colon')
-        body = self.interface_suite()
-        return InterfaceDefinition(name, body, pos)
+        body = self.signature_suite()
+        return SignatureDefinition(name, body, pos)
 
-    def classdef(self, pos):
+    def module_def(self, pos):
         name = self.name()
         bases = []
         if self.accept_next('lparen'):
@@ -658,7 +641,7 @@ class Parser:
                 bases = self.arglist()
         self.expect('colon')
         body = self.suite()
-        return ClassDefinition(name, bases, body, pos)
+        return ModuleDefinition(name, bases, body, pos)
 
     def decorator(self):
         name = self.dotted_name()
@@ -675,12 +658,10 @@ class Parser:
     def decorated(self, pos):
         decorators = self.decorators()
         pos = self.current_token().pos
-        if self.accept_next('class'):
-            defn = self.classdef(pos)
-        elif self.accept_next('async'):
-            defn = self.async_funcdef(pos)
+        if self.accept_next('module'):
+            defn = self.module_def(pos)
         elif self.accept_next('def'):
-            defn = self.funcdef(pos)
+            defn = self.func_def(pos)
         else:
             self.raise_unexpected()
         return Decorated(decorators=decorators, defn=defn, pos=pos)
@@ -691,7 +672,7 @@ class Parser:
         while self.accept_next('at'):
             yield self.decorator()
 
-    def macrodef(self, pos):
+    def macro_def(self, pos):
         name = self.get_token('id').string
         params = self.parameters()
         if self.accept_next('arrow'):
@@ -702,7 +683,7 @@ class Parser:
         suite = self.suite()
         return MacroDefinition(name, params, suite, return_annotation, pos)
 
-    def funcdef(self, pos):
+    def func_def(self, pos):
         name = self.get_token('id').string
         params = self.parameters()
         if self.accept_next('arrow'):
@@ -992,15 +973,12 @@ class Parser:
         return atom_expr
 
     def atom_expr(self):
-        prepend_await = self.accept_next('await')
         atom = self.quasiatom()
         trailers = []
         while self.accept('lparen', 'lbrack', 'dot'):
             trailers.append(self.trailer())
         if len(trailers) != 0:
             atom = AtomExpression(atom, trailers)
-        if prepend_await:
-            return AwaitExpression(atom)
         return atom
 
     def quasiatom(self):
@@ -1056,7 +1034,7 @@ class Parser:
         keyword = self.test()
         if self.accept_next('equal'):
             return KeywordArg(keyword, self.test())
-        if self.accept('async', 'for'):
+        if self.accept('for'):
             return CompForArg(keyword, self.comp_for())
         return keyword
 
@@ -1114,7 +1092,7 @@ class Parser:
 
     def testlist_comp(self, pos, *terminators):
         exprs = [self.star_expr_or_test()]
-        if self.accept('async', 'for'):
+        if self.accept('for'):
             return Comprehension(exprs[0], self.comp_for(), pos=pos)
         while self.accept_next('comma'):
             if self.accept(*terminators):
@@ -1124,7 +1102,7 @@ class Parser:
 
     def rest_of_dictmaker(self, pos, first):
         exprs = [first]
-        if self.accept('async', 'for'):
+        if self.accept('for'):
             return DictComprehension(first, self.comp_for(), pos=pos)
         while self.accept_next('comma'):
             if self.accept('rbrace'):
@@ -1134,7 +1112,7 @@ class Parser:
 
     def rest_of_setmaker(self, pos, first):
         exprs = [first]
-        if self.accept('async', 'for'):
+        if self.accept('for'):
             return SetComprehension(first, self.comp_for(), pos=pos)
         while self.accept_next('comma'):
             if self.accept('rbrace'):
@@ -1213,19 +1191,18 @@ class Parser:
     @compose(list)
     def comp_for(self):
         yield self.comp_for_clause()
-        while self.accept('if', 'async', 'for'):
+        while self.accept('if', 'for'):
             if self.accept_next('if'):
                 yield self.comp_if_clause()
             else:
                 yield self.comp_for_clause()
 
     def comp_for_clause(self):
-        is_async = self.accept_next('async')
         self.expect('for')
         exprs = self.exprlist('in')
         self.expect('in')
         iterable = self.or_test()
-        return CompForClause(is_async=is_async, exprs=exprs, iterable=iterable)
+        return CompForClause(exprs=exprs, iterable=iterable)
 
     def comp_if_clause(self):
         return CompIfClause(test=self.test_nocond())

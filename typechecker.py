@@ -182,12 +182,12 @@ class DictType(Type):
             return self.k == other.k and self.v == other.v
         return False
 
-class InterfaceType:
+class SignatureType:
     def __init__(self, types, names):
         self.types = types
         self.names = names
     def __str__(self):
-        return 'interface({self.types}; {self.names})'
+        return 'signature({self.types}; {self.names})'
 
 class FunctionType(Type):
     def __init__(self, t1, t2):
@@ -600,7 +600,7 @@ class Infer:
         self.add_env(ast.name, tf)
         return default_effects.but(Unit)
 
-    @infer.on(InterfaceDefinition)
+    @infer.on(SignatureDefinition)
     def _(self, ast):
         with self.subenv():
             types = {}
@@ -626,7 +626,7 @@ class Infer:
                         self.unify_all(t, law_type, decl.pos)
                 else: raise RuntimeError()
 
-        self.type_env[ast.name.name] = InterfaceType(types, names)
+        self.type_env[ast.name.name] = SignatureType(types, names)
         return self.Types(Unit)
 
     @contextlib.contextmanager
