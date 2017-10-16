@@ -74,7 +74,7 @@ def tap(f):
         return inner
     return outer
 
-def overloadmethod(*, use_as_default=False, use_as_modifier=False):
+def overloadmethod(*, use_as_default=False, use_as_modifier=False, error_function=None):
     if use_as_modifier and use_as_default:
         raise ValueError('cannot use function both as the default and a modifier')
 
@@ -90,6 +90,8 @@ def overloadmethod(*, use_as_default=False, use_as_modifier=False):
                     return r
             if use_as_default:
                 return f(self, x, *args, **kwds)
+            elif error_function is not None:
+                raise error_function(self, x, *args, **kwds)
             else:
                 raise TypeError('no overload found for {}'.format(x.__class__))
         def on(t):

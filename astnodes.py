@@ -422,22 +422,22 @@ class AtomExpression(Expression):
         return atom
 
 class CallExpression(Expression):
-    def __init__(self, atom, args):
+    def __init__(self, atom, args, pos):
         self.atom = atom 
         self.args = args
-        self.pos = atom.pos
+        self.pos = pos
 
 class IndexExpression(Expression):
-    def __init__(self, atom, indices):
+    def __init__(self, atom, indices, pos):
         self.atom = atom 
         self.indices = indices
-        self.pos = atom.pos
+        self.pos = pos
 
 class AttrExpression(Expression):
-    def __init__(self, atom, name):
+    def __init__(self, atom, name, pos):
         self.atom = atom 
         self.name = name
-        self.pos = atom.pos
+        self.pos = pos
 
 class AwaitExpression(Expression):
     def __init__(self, expr):
@@ -483,17 +483,26 @@ class FalseExpression(Expression):
     def __init__(self, pos):
         self.pos = pos
 
-class CallTrailer(Expression):
-    def __init__(self, args):
-        self.args = args
+class AttrTrailer(Expression):
+    def __init__(self, name, pos):
+        self.name = name
+        self.pos = pos
     def fix(self, atom):
-        return CallExpression(atom, self.args)
+        return AttrExpression(atom, self.name, self.pos)
+
+class CallTrailer(Expression):
+    def __init__(self, args, pos):
+        self.args = args
+        self.pos = pos
+    def fix(self, atom):
+        return CallExpression(atom, self.args, self.pos)
 
 class IndexTrailer(Expression):
-    def __init__(self, indices):
+    def __init__(self, indices, pos):
         self.indices = indices
+        self.pos = pos
     def fix(self, atom):
-        return IndexExpression(atom, self.indices)
+        return IndexExpression(atom, self.indices, self.pos)
 
 class Index(Expression):
     def __init__(self, idx):
@@ -504,12 +513,6 @@ class Slice(Expression):
         self.start = start
         self.end = end
         self.step = step
-
-class AttrTrailer(Expression):
-    def __init__(self, name):
-        self.name = name
-    def fix(self, atom):
-        return AttrExpression(atom, self.name)
 
 class StarArg(Expression):
     def __init__(self, name):
@@ -598,6 +601,12 @@ class TypeDeclaration(Expression):
     def __init__(self, name, args, pos):
         self.name = name
         self.args = args
+        self.pos = pos
+
+class LawDeclaration(Expression):
+    def __init__(self, names, expr, pos):
+        self.names = names
+        self.expr = expr
         self.pos = pos
 
 class Param(Expression):

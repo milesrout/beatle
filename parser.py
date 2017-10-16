@@ -368,10 +368,14 @@ class Parser:
         return TypeNameExpression(self.name())
 
     def new_type_expr(self):
-        expr = self.name()
+        name = self.name()
         if self.accept_next('lbrack'):
-            return (expr, self.new_type_call_args())
-        return (expr, [])
+            return (name, self.new_type_call_args())
+        return (name, [])
+
+    def type_decl(self, pos):
+        name, args = self.new_type_expr()
+        return TypeDeclaration(name, args, pos)
 
     @compose(list)
     def new_type_call_args(self):
@@ -394,8 +398,22 @@ class Parser:
     def interface_decl(self):
         pos = self.current_token().pos
         if self.accept_next('type'):
-            return TypeDeclaration(*self.new_type_expr(), pos=pos)
+            return self.type_decl(pos)
+        if self.accept_next('law'):
+            return self.law_decl(pos)
         return self.name_declaration()
+
+    def law_decl(self, pos):
+        if self.accept_next('forall'):
+            names = [self.name()]
+            while self.accept_next('comma'):
+                names.append(self.name())
+            self.expect('dot')
+            return LawDeclaration(names, self.law_expr(), pos)
+        return LawDeclaration([], self.law_expr(), pos)
+
+    def law_expr(self):
+        return self.test()
 
     def name_declaration(self):
         name = self.name()
@@ -990,12 +1008,13 @@ class Parser:
         return self.atom()
 
     def trailer(self):
+        pos = self.current_token().pos
         if self.accept_next('lparen'):
-            return CallTrailer(self.call_trailer())
+            return CallTrailer(self.call_trailer(), pos=pos)
         if self.accept_next('lbrack'):
-            return IndexTrailer(self.index_trailer())
+            return IndexTrailer(self.index_trailer(), pos=pos)
         if self.accept_next('dot'):
-            return AttrTrailer(self.attr_trailer())
+            return AttrTrailer(self.attr_trailer(), pos=pos)
         self.raise_unexpected()
 
     def call_trailer(self):

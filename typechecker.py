@@ -68,6 +68,10 @@ class TypeVariable(Type):
     def ftv(self):
         return {self.tvar}
 
+class TypeConstructor:
+    def __init__(self, args: int):
+        self.args = args
+
 class TypeConstant(Type):
     def __init__(self, name):
         self.name = name
@@ -90,7 +94,7 @@ class TypeCall(Type):
     def ftv(self):
         if len(self.ts) == 0:
             return self.con.ftv()
-        return set.union(self.con, ftv(), *[t.ftv() for t in self.ts])
+        return set.union(self.con.ftv(), *[t.ftv() for t in self.ts])
     def __eq__(self, other):
         if isinstance(other, TypeCall):
             if self.con == other.con:
@@ -250,7 +254,10 @@ class Infer:
 
     ######
 
-    @overloadmethod(use_as_modifier=True)
+    def infer_error(self, ast):
+        return ApeError(pos=ast.pos, msg='no overload found for {}'.format(ast.__class__))
+
+    @overloadmethod(use_as_modifier=True, error_function=infer_error)
     def infer(self, ast, t):
         ast.type = t
 
@@ -470,15 +477,23 @@ class Infer:
             names = {}
             for decl in ast.body:
                 if isinstance(decl, TypeDeclaration):
+                    if len(decl.args) == 0:
+                        # declaration of type
+                    else:
+                        # declaration of type *constructor*
                     params = [expr.name for expr in decl.args]
                     tvars = [TypeVariable(name) for name in params]
-                    types[decl.name.name] = self.type_env[decl.name.name] = TypeScheme(params, TypeCall(TypeConstant(decl.name), tvars))
+                    types[decl.name.name] = self.type_env[decl.name.name] = TypeScheme(params, TypeCall(TypeConstant(decl.name.name), tvars))
                 elif isinstance(decl, NameDeclaration):
                     scm = self.parse_toplevel_type(decl.annotation)
                     name = decl.name.name
                     names[name] = self.env[name] = scm
+                elif isinstance(decl, LawDeclaration):
+                    with self.subenv():
+                        self.env.update({name.name: TypeScheme([], self.fresh()) for name in decl.names})
+                        t = self.infer(decl.expr)
+                        self.unify(t, Bool, decl.pos)
                 else: raise RuntimeError()
-            print(types, names)
         self.type_env[ast.name.name] = InterfaceType(types, names)
 
         return Unit
