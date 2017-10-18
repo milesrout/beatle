@@ -425,15 +425,17 @@ class Parser:
 
     def expr_stmt(self):
         tlse = self.testlist_star_expr()
+        colon_pos = self.current_token().pos
         if self.accept_next('colon'):
             annotation = self.type_expr()
+            equal_pos = self.current_token().pos
             if self.accept_next('equal'):
                 return AnnotatedAssignment(
-                    type='equal',
                     assignee=tlse,
                     expr=self.test(),
-                    annotation=annotation)
-            return AnnotatedExpression(tlse, annotation, pos=tlse.pos)
+                    annotation=annotation,
+                    pos=equal_pos)
+            return AnnotatedExpression(tlse, annotation, pos=colon_pos)
         if self.accept(*self.augassign_tokens):
             augtype = self.get_token().type
             pos = self.current_token().pos

@@ -3,6 +3,7 @@ signature Queue:
 
     queue_error:     error
     empty:       ∀a. queue[a]
+    empty2:      ∀a,b. queue[a]
     is_empty:    ∀a. queue[a] → bool
     singleton:   ∀a. a → queue[a]
     insert:      ∀a. (a, queue[a]) → queue[a]

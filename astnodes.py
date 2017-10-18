@@ -333,8 +333,7 @@ class ChainedAssignment(Expression):
         return any(s.is_gen() for s in self.assignees)
 
 class AnnotatedAssignment(Expression):
-    def __init__(self, type, assignee, expr, annotation, pos):
-        self.type = type
+    def __init__(self, assignee, expr, annotation, pos):
         self.assignee = assignee
         self.expr = expr
         self.annotation = annotation
@@ -586,6 +585,8 @@ class ReturnStatement(Expression):
     def __init__(self, expr, pos):
         self.pos = pos
         self.expr = expr
+    def is_gen(self):
+        return self.expr.is_gen()
 
 class TypeNameExpression(Expression):
     def __init__(self, name):

@@ -25,8 +25,7 @@ def parse_args():
     parser.add_argument('input', metavar='INPUT_FILE', type=argparse.FileType('r'),
                         default=sys.stdin, nargs='?',
                         help='the input file')
-    parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=None,
-                        help='the output file')
+    parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=None)
     parser.add_argument('-v', '--verbose', action='count', default=0,
                         help='enables verbose output mode. the more \'-v\'s, the more output.')
     parser.add_argument('--tokens', type=argparse.FileType('r'), default=open('tokens.json'),
@@ -41,9 +40,8 @@ def parse_args():
 
     # These options *set* the phases, so they are mutually exclusive.
     ph_mutex = phases.add_mutually_exclusive_group()
-    ph_mutex.add_argument('-p', '--phases', nargs='+',
-                          choices=PHASES, default=PHASES,
-                          help='which phases to do')
+    ph_mutex.add_argument('-p', '--phases', nargs='+', metavar="PHASE",
+                          choices=PHASES, default=PHASES)
     ph_mutex.add_argument('--scan', action='store_const',
                           dest='phases', const=['SCAN'],
                           help='shorthand for --phase SCAN')

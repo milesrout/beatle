@@ -1,5 +1,5 @@
-a = 1
-b = 2
+a = 0
+b = 1
 c = 3
 zero_result = 0
 nonzero_result = 1
@@ -15,7 +15,7 @@ print("okay")
 
 
 if a == 0 or b == 1:
-    a = (if b == 0:
+    a = (if a == 0:
              zero_result
          else:
              nonzero_result)
