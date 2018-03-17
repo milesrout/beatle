@@ -1,40 +1,27 @@
-import re
-from collections import namedtuple
-from functools import reduce
+import functools
 
-from utils import *
+from utils import Expression, nviews
 
 class EmptyListExpression(Expression):
     def __init__(self, pos):
         self.pos = pos
+
     def __repr__(self):
         return 'EmptyListExpression'
 
 class EmptyDictExpression(Expression):
     def __init__(self, pos):
         self.pos = pos
+
     def __repr__(self):
         return 'EmptyDictExpression'
 
 class EmptyTupleExpression(Expression):
     def __init__(self, pos):
         self.pos = pos
+
     def __repr__(self):
         return 'EmptyTupleExpression'
-
-# This is only used inside the parser, and is not present in the final AST
-class Comprehension(Expression):
-    def __init__(self, expr, rest, pos):
-        self.expr = expr
-        self.rest = rest
-        self.pos = pos
-
-# This is only used inside the parser, and is not present in the final AST
-class Literal(Expression):
-    def __init__(self, exprs, pos, *, trailing_comma):
-        self.exprs = exprs
-        self.trailing_comma = trailing_comma
-        self.pos = pos
 
 class SetComprehension(Expression):
     def __init__(self, expr, rest, pos):
@@ -64,6 +51,7 @@ class SetLiteral(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
+
     def is_gen(self):
         return any(e.is_gen() for e in self.exprs)
 
@@ -71,11 +59,13 @@ class DictLiteral(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
+
     def is_gen(self):
         return any(e.is_gen() for e in self.exprs)
+
 class DictPair(Expression):
     def __init__(self, key_expr, value_expr):
-        self.key_expr = key_expr 
+        self.key_expr = key_expr
         self.value_expr = value_expr
         self.pos = key_expr.pos
 
@@ -83,6 +73,7 @@ class ListLiteral(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
+
     def is_gen(self):
         return any(e.is_gen() for e in self.exprs)
 
@@ -90,6 +81,7 @@ class TupleLiteral(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
+
     def is_gen(self):
         return any(e.is_gen() for e in self.exprs)
 
@@ -113,24 +105,11 @@ class Lazy(Expression):
         self.expr = expr
         self.pos = pos
 
-class StarParam(Expression):
-    def __init__(self, name, pos):
-        self.name = name
-        self.pos = pos
-
-class StarStarKwparam(Expression):
-    def __init__(self, name, pos):
-        self.name = name
-        self.pos = pos
-
 class Statements(Expression):
-    #def __new__(self, stmts):
-    #    if len(stmts) == 1:
-    #        return stmts[0]
-    #    return super().__new__(self)
     def __init__(self, stmts):
         self.stmts = stmts
         self.pos = stmts[0].pos
+
     def is_gen(self):
         return any(s.is_gen() for s in self.stmts)
 
@@ -139,6 +118,7 @@ class RaiseStatement(Expression):
         self.expr = expr
         self.original = original
         self.pos = pos
+
     def is_gen(self):
         if self.expr is not None:
             if self.original is not None:
@@ -150,6 +130,7 @@ class YieldExpression(Expression):
     def __init__(self, expr, pos):
         self.expr = expr
         self.pos = pos
+
     def is_gen(self):
         return True
 
@@ -157,6 +138,7 @@ class DelStatement(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
+
     def is_gen(self):
         return any(e.is_gen() for e in self.exprs)
 
@@ -164,6 +146,7 @@ class AssertStatement(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
+
     def is_gen(self):
         return any(e.is_gen() for e in self.exprs)
 
@@ -237,11 +220,10 @@ class TryStatement(Expression):
         self.pos = pos
 
 class MacroDefinition(Expression):
-    def __init__(self, name, params, body, return_annotation, pos):
+    def __init__(self, name, params, body, pos):
         self.name = name
         self.params = params
         self.body = body
-        self.return_annotation = return_annotation
         self.pos = pos
 
 class FunctionDefinition(Expression):
@@ -252,18 +234,22 @@ class FunctionDefinition(Expression):
         self.return_annotation = return_annotation
         self.pos = pos
 
+    def is_gen(self):
+        return any(p.is_gen() for p in self.params)
+
 class FunctionExpression(Expression):
     def __init__(self, params, body, return_annotation, pos):
         self.params = params
         self.body = body
         self.return_annotation = return_annotation
         self.pos = pos
+
     def is_gen(self):
         return any(p.is_gen() for p in self.params)
 
 class LambdaExpression(Expression):
-    def __init__(self, args, body, pos):
-        self.args = args
+    def __init__(self, params, body, pos):
+        self.params = params
         self.body = body
         self.pos = pos
 
@@ -274,9 +260,10 @@ class SignatureDefinition(Expression):
         self.pos = pos
 
 class ModuleDefinition(Expression):
-    def __init__(self, name, bases, body, pos):
+    def __init__(self, name, params, typ, body, pos):
         self.name = name
-        self.bases = bases
+        self.params = params
+        self.typ = typ
         self.body = body
         self.pos = pos
 
@@ -329,6 +316,7 @@ class ChainedAssignment(Expression):
     def __init__(self, assignees):
         self.assignees = assignees
         self.pos = assignees[0].pos
+
     def is_gen(self):
         return any(s.is_gen() for s in self.assignees)
 
@@ -408,18 +396,19 @@ class BitShiftExpression(Expression):
 
 class ArithExpression(Expression):
     def __init__(self, op, left, right):
-        self.op = op.type
+        self.op = op
         self.left = left
         self.right = right
         self.pos = left.pos
+
     def is_gen(self):
         return self.left.is_gen() or self.right.is_gen()
 
 class UnaryExpression(Expression):
-    def __init__(self, op, expr):
-        self.op = op.type
+    def __init__(self, op, expr, pos):
+        self.op = op
         self.expr = expr
-        self.pos = op.pos
+        self.pos = pos
 
 class PowerExpression(Expression):
     def __init__(self, expr, exponent):
@@ -435,34 +424,31 @@ class AtomExpression(Expression):
 
 class CallExpression(Expression):
     def __init__(self, atom, args, pos):
-        self.atom = atom 
+        self.atom = atom
         self.args = args
         self.pos = pos
+
     def is_gen(self):
         return self.atom.is_gen() or any(e.is_gen() for e in self.args)
 
 class IndexExpression(Expression):
     def __init__(self, atom, indices, pos):
-        self.atom = atom 
+        self.atom = atom
         self.indices = indices
         self.pos = pos
 
 class AttrExpression(Expression):
     def __init__(self, atom, name, pos):
-        self.atom = atom 
+        self.atom = atom
         self.name = name
         self.pos = pos
-
-class AwaitExpression(Expression):
-    def __init__(self, expr):
-        self.expr = expr
-        self.pos = expr.pos
 
 class IntExpression(Expression):
     def __init__(self, token):
         self.base = token.type
         self.value = token.string
         self.pos = token.pos
+
     def is_gen(self):
         return False
 
@@ -471,6 +457,15 @@ class FloatExpression(Expression):
         self.format = token.type
         self.value = token.string
         self.pos = token.pos
+
+    def is_gen(self):
+        return False
+
+class DottedNameExpression(Expression):
+    def __init__(self, parts):
+        self.parts = parts
+        self.pos = parts[0].pos
+
     def is_gen(self):
         return False
 
@@ -478,6 +473,7 @@ class IdExpression(Expression):
     def __init__(self, name):
         self.name = name.string
         self.pos = name.pos
+
     def is_gen(self):
         return False
 
@@ -486,6 +482,7 @@ class StringExpression(Expression):
         'Unparsed is a list of strings'
         self.unparsed = unparsed
         self.pos = unparsed[0].pos
+
     def is_gen(self):
         return False
 
@@ -509,6 +506,7 @@ class AttrTrailer(Expression):
     def __init__(self, name, pos):
         self.name = name
         self.pos = pos
+
     def fix(self, atom):
         return AttrExpression(atom, self.name, self.pos)
 
@@ -516,6 +514,7 @@ class CallTrailer(Expression):
     def __init__(self, args, pos):
         self.args = args
         self.pos = pos
+
     def fix(self, atom):
         return CallExpression(atom, self.args, self.pos)
 
@@ -523,6 +522,7 @@ class IndexTrailer(Expression):
     def __init__(self, indices, pos):
         self.indices = indices
         self.pos = pos
+
     def fix(self, atom):
         return IndexExpression(atom, self.indices, self.pos)
 
@@ -546,7 +546,7 @@ class StarStarKwarg(Expression):
 
 class KeywordArg(Expression):
     def __init__(self, name, expr):
-        self.name = name 
+        self.name = name
         self.expr = expr
 
 class CompForArg(Expression):
@@ -556,20 +556,17 @@ class CompForArg(Expression):
 
 class CompForClause(Expression):
     def __init__(self, exprs, iterable):
-        self.exprs = exprs 
+        self.exprs = exprs
         self.iterable = iterable
 
 class CompIfClause(Expression):
     def __init__(self, test):
         self.test = test
 
-class EndOfPosParams(Expression):
-    def __init__(self, pos):
-        self.pos = pos
-
 class PassStatement(Expression):
     def __init__(self, pos):
         self.pos = pos
+
     def is_gen(self):
         return False
 
@@ -585,12 +582,13 @@ class ReturnStatement(Expression):
     def __init__(self, expr, pos):
         self.pos = pos
         self.expr = expr
+
     def is_gen(self):
         return self.expr.is_gen()
 
 class TypeNameExpression(Expression):
     def __init__(self, name):
-        self.name = name.name
+        self.name = name
         self.pos = name.pos
 
 class TypeFunctionExpression(Expression):
@@ -622,6 +620,13 @@ class NameDeclaration(Expression):
         self.annotation = annotation
         self.pos = pos
 
+class TypeDefinition(Expression):
+    def __init__(self, name, args, expr, pos):
+        self.name = name
+        self.args = args
+        self.expr = expr
+        self.pos = pos
+
 class TypeDeclaration(Expression):
     def __init__(self, name, args, pos):
         self.name = name
@@ -639,8 +644,10 @@ class Param(Expression):
         self.name = name
         self.annotation = annotation
         self.default = default
+
     def __repr__(self):
         return f'Param({self.name}, {self.annotation}, {self.default})'
+
     def __str__(self):
         if self.default is None and self.annotation is None:
             return self.name
@@ -650,8 +657,25 @@ class Param(Expression):
             return f'{self.name}={self.default}'
         else:
             return f'{self.name}: {self.annotation} = {self.default}'
+
     def is_gen(self):
         return self.default is not None and self.default.is_gen()
+
+class EndOfPosParams(Expression):
+    def __init__(self, pos):
+        self.pos = pos
+
+class StarVarParams(Expression):
+    def __init__(self, name, annotation, pos):
+        self.name = name
+        self.annotation = annotation
+        self.pos = pos
+
+class StarStarKwParams(Expression):
+    def __init__(self, name, annotation, pos):
+        self.name = name
+        self.annotation = annotation
+        self.pos = pos
 
 class Comparison(Expression):
     def __init__(self, op, a, b, pos):
@@ -659,18 +683,31 @@ class Comparison(Expression):
         self.a = a
         self.b = b
         self.pos = pos
+
     def is_gen(self):
         return self.a.is_gen() or self.b.is_gen()
 
 class ComparisonChain(Expression):
     def __new__(self, chain, pos):
         """A chain of comparisons
-        
         chain is something like ('0', 'lt', 'x', 'le', '1'), which
         gets translated to (('0', 'lt', 'x') && ('x', 'le' '1'))
         """
         split = list(nviews(chain, 3))[::2]
-        combined = functools.reduce((lambda a, b: LogicalAndExpressions([a, b])),
+        combined = functools.reduce(
+            (lambda a, b: LogicalAndExpressions([a, b])),
             (Comparison(op, a, b, pos) for a, op, b in split))
         return combined
 
+# These are only used inside the parser, and are not present in the final AST
+class Comprehension(Expression):
+    def __init__(self, expr, rest, pos):
+        self.expr = expr
+        self.rest = rest
+        self.pos = pos
+
+class Literal(Expression):
+    def __init__(self, exprs, pos, *, trailing_comma):
+        self.exprs = exprs
+        self.trailing_comma = trailing_comma
+        self.pos = pos

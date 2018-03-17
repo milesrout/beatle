@@ -1,3 +1,8 @@
+signature Functor:
+    type f[a]
+    
+    map: ∀a,b. (a → b) → f[a] → f[b]
+
 signature Monad:
     type m[a]
 

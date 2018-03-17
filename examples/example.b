@@ -35,13 +35,13 @@ print("okay")
 
 if a == 0 or b == 1:
     a = (if b == 0:
-             zero_result
+             "hello"
          else:
-             nonzero_result)
-    b = (if b == 0:
-             zero_result
+             "world")
+    a = (if b == 0:
+             2
          else:
-             nonzero_result)
+             3)
     raise RuntimeError('that is not valid!')
     print(str(a + b))
 
@@ -92,7 +92,7 @@ def foo():
                                       str(1, 2, 3) +
                                     str(a, b, c))))
                        print(str(['Hello',
-                             str((def():
-                                     print(str((1, 2, 3))); print(str(a, b, c))
-                                     pass)),
+                                  str((def():
+                                         print(str((1, 2, 3))); print(str(a, b, c))
+                                         pass)),
                         'World'])))

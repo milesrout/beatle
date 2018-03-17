@@ -17,13 +17,13 @@ module Foo:
             annotation = self.test()
             if self.accept_next('equal'):
                 return AnnotatedAssignment(
-                    type='equal',
+                    type_='equal',
                     assignee=tlse,
                     expr=self.test(),
                     annotation=annotation)
             return AnnotatedExpression(tlse, annotation)
         if self.accept(*self.augassign_tokens):
-            augtype = self.get_token().type
+            augtype = self.get_token().type_
             if self.accept_next('yield'):
                 expr = self.yield_expr('semicolon', 'newline')
             else:

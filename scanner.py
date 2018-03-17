@@ -1,16 +1,11 @@
 import collections
-import functools
 import itertools
 import json
-import operator
-import pprint
 import re
-import sys
 
 from collections import namedtuple
-from itertools import groupby
 
-from utils import *
+from utils import ApeSyntaxError, variable_content_tokens
 
 IndentLine = namedtuple('IndentLine', 'indent pos endpos content')
 
@@ -32,7 +27,7 @@ class Scanner:
         The keywords array and tokens dict are obtained from files."""
 
         keywords_list = json.load(keywords_file, object_pairs_hook=collections.OrderedDict)
-        keywords = { k.lower():f'\\b{k}\\b' for k in keywords_list }
+        keywords = {k.lower(): f'\\b{k}\\b' for k in keywords_list}
 
         tokens = json.load(tokens_file, object_pairs_hook=collections.OrderedDict)
 
@@ -107,7 +102,7 @@ class Scanner:
                     initial = None
                     group = []
         if len(group) != 0:
-            raise self.Error('cannot end with backslash-continuation line');
+            raise self.Error('cannot end with backslash-continuation line')
 
     def add_blank_line(self, lines):
         return itertools.chain(lines, [IndentLine(indent=0, pos=len(self.input_text), endpos=len(self.input_text), content=[])])
@@ -171,7 +166,7 @@ class Scanner:
                         diff = len(token.string) - len(matching.string)
             yield token
         if len(indent_stack) != 0:
-            raise ApeSyntaxError(pos=indent_stack[-1].pos, 
+            raise ApeSyntaxError(pos=indent_stack[-1].pos,
                                  msg=f'mismatched indents somehow: {indent_stack[-1]}')
 
     def add_eof_token(self, tokens):
@@ -259,7 +254,7 @@ class Scanner:
             self.parse_indentation,
             self.split_dedent_tokens,
             self.add_eof_token,
-            #self.check_indents,
+            # self.check_indents,
         ]
 
         for step in lexing_steps:

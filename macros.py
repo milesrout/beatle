@@ -1,25 +1,36 @@
-from utils import *
-from astnodes import *
+from utils import compose, overloadmethod
+from astpass import AstPass, DeepAstPass
+import astnodes as E
 
-class MacroExpander:
+class MacroExpander(DeepAstPass):
+    pass
+
+class MacroProcessor(AstPass):
     def __init__(self):
         self.env = {}
 
-    def expand(self, ast: Expression):
+    @overloadmethod(use_as_default=True)
+    def do_pass(self, ast):
         return ast
 
-    def handle(self, ast: MacroDefinition):
-        pass
-
-    @compose(Statements)
+    # This should be sufficient to catch all 'toplevel' statements for now.
+    # Macros should be restricted to the top level in the parser. In future
+    # it might be desirable to allow macros to be defined more freely.
+    @do_pass.on(E.Statements)
+    @compose(E.Statements)
     @compose(list)
-    def process(self, ast: Statements):
+    def _(self, ast):
         for stmt in ast.stmts:
-            if isinstance(stmt, MacroDefinition):
-                self.handle(stmt)
-            else:
-                yield self.expand(stmt)
+            print(stmt)
+            yield self.expand(self.do_pass(stmt))
+
+    @do_pass.on(E.MacroDefinition)
+    def _(self, ast):
+        self.env[ast.name] = (ast.params, ast.body)
+        return E.NoneExpression(pos=ast.pos)
+
+    expand = MacroExpander().visit
 
 def process(ast):
-    me = MacroExpander()
-    return me.process(ast)
+    mp = MacroProcessor()
+    return mp.visit(ast)

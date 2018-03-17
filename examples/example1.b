@@ -1,3 +1,6 @@
+def bar(x, y: int, z=None, w: bool = True):
+    pass
+
 def foo(x):
     y = yield x
     z = yield y
