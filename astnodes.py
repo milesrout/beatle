@@ -253,6 +253,19 @@ class LambdaExpression(Expression):
         self.body = body
         self.pos = pos
 
+class NamespaceDefinition(Expression):
+    def __init__(self, name, key, expr, pos):
+        self.name = name
+        self.key = key
+        self.expr = expr
+        self.pos = pos
+
+class NamespaceReferenceDefinition(Expression):
+    def __init__(self, name, key, pos):
+        self.name = name
+        self.key = key
+        self.pos = pos
+
 class SignatureDefinition(Expression):
     def __init__(self, name, body, pos):
         self.name = name
@@ -285,9 +298,10 @@ class WithItem(Expression):
         self.assignee = assignee
 
 class Decorator(Expression):
-    def __init__(self, name, args):
+    def __init__(self, name, args, pos):
         self.name = name
         self.args = args
+        self.pos = pos
 
 class Decorated(Expression):
     def __init__(self, decorators, defn, pos):

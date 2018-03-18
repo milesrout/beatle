@@ -4,14 +4,15 @@ import itertools
 
 import typednodes as T
 import astnodes as E
-from utils import Type, Ast, ApeError, ApeSyntaxError, overloadmethod, unzip
+from is_gen import is_gen
+from utils import Type, Ast, ApeInternalError, ApeNotImplementedError, ApeTypeError, overloadmethod, unzip
 
 #⭑: 2b51
 
-class ApeInferenceError(ApeError):
+class ApeInferenceError(ApeTypeError):
     pass
 
-class ApeUnificationError(ApeError):
+class ApeUnificationError(ApeTypeError):
     pass
 
 class PrimitiveType(Type):
@@ -339,21 +340,72 @@ class ArrowKind(Kind):
     def fkv(self):
         return set.union(self.k.fkv(), *[k.fkv() for k in self.ks])
 
+printout_depth = 0
+
+@contextlib.contextmanager
+def depth():
+    global printout_depth
+    printout_depth += 1
+    yield
+    printout_depth -= 1
+
+def printout(*args, **kwds):
+    print(printout_depth * ' ', *args, **kwds)
+
+class Namespace:
+    def __init__(self, env):
+        if isinstance(env, Namespace):
+            raise
+        self.env = env
+
+    def printout(self):
+        for k, v in self.env.items():
+            if isinstance(v, Object):
+                printout(f'{k!s:<15} {v.value!s}')
+            elif isinstance(v, Namespace):
+                printout(f'{k!s}:')
+                with depth():
+                    v.printout()
+            else:
+                printout(f'{k!s:<15} {v!s}')
+
+    def __getitem__(self, key):
+        if isinstance(key, E.DottedNameExpression):
+            raise
+        return self.env[key]
+    
+    def __setitem__(self, key, value):
+        if isinstance(key, E.DottedNameExpression):
+            raise
+        self.env[key] = value
+
+    def get(self, key, alt=None):
+        if isinstance(key, E.DottedNameExpression):
+            raise
+        return self.env.get(key, alt)
+
+    def update(self, others):
+        self.env.update(others)
+
+class Object:
+    def __init__(self, value):
+        self.value = value
+
 BASE_ENVIRONMENT = {
-    'print': TypeScheme([], FunctionType(String, Unit)),
-    'str':   TypeScheme(['a'], FunctionType(TypeVariable('a'), String)),
-    'set':   TypeScheme(['a'], FunctionType(Unit, SetType(TypeVariable('a')))),
-    'cons':  TypeScheme(['a'], FunctionType(TupleType([TypeVariable('a'), ListType(TypeVariable('a'))]),
-                                            ListType(TypeVariable('a')))),
-    'RuntimeError': TypeScheme([], FunctionType(String, Error)),
+    'print': Object(TypeScheme([], FunctionType(String, Unit))),
+    'str':   Object(TypeScheme(['a'], FunctionType(TypeVariable('a'), String))),
+    'set':   Object(TypeScheme(['a'], FunctionType(Unit, SetType(TypeVariable('a'))))),
+    'cons':  Object(TypeScheme(['a'], FunctionType(TupleType([TypeVariable('a'), ListType(TypeVariable('a'))]),
+                                            ListType(TypeVariable('a'))))),
+    'RuntimeError': Object(TypeScheme([], FunctionType(String, Error))),
 }
 
 BASE_TYPE_ENVIRONMENT = {
-    'list':  TypeConstructor('list', 1),
-    'int':   Nullary(Int),
-    'float': Nullary(Float),
-    'bool':  Nullary(Bool),
-    'error': Nullary(Error),
+    'list':  Object(TypeConstructor('list', 1)),
+    'int':   Object(Nullary(Int)),
+    'float': Object(Nullary(Float)),
+    'bool':  Object(Nullary(Bool)),
+    'error': Object(Nullary(Error)),
 }
 
 generic_unary_op = TypeScheme(['a'], FunctionType(TypeVariable('a'), TypeVariable('a')))
@@ -375,14 +427,18 @@ BINARY_OPERATORS = {
 }
 
 class TypeChecker:
-    def __init__(self):
-        self.env = collections.ChainMap(BASE_ENVIRONMENT)
-        self.type_env = collections.ChainMap(BASE_TYPE_ENVIRONMENT)
+    def __init__(self, input_text):
+        self.env = Namespace(collections.ChainMap(BASE_ENVIRONMENT).new_child())
+        self.type_env = Namespace(collections.ChainMap(BASE_TYPE_ENVIRONMENT).new_child())
         self.unifiers = []
         self.kind_unifiers = []
         self.fresh_vars = (f'a{i}' for i in itertools.count(1))
         self.fresh_kind_vars = (f'k{i}' for i in itertools.count(1))
         self.asts = []
+
+        class Error:
+            def __init__(this, msg, pos):
+                super().__init__(msg, pos, self.input_text)
 
         class Types:
             """A collection of the different types an expression can have
@@ -443,6 +499,7 @@ class TypeChecker:
                              stype=stype or Any,
                              ctype=ctype or Any)
 
+        self.Error = Error
         self.Types = Types
 
     ######
@@ -457,55 +514,70 @@ class TypeChecker:
         return scm.t.apply({tvar: self.fresh() for tvar in scm.tvars})
 
     def generalise(self, t):
-        ftv = t.ftv() - set.union(*(ty.ftv() for ty in self.env.values()))
+        ftv = t.ftv() - set.union(*(ty.value.ftv() for ty in self.env.env.values()))
         return TypeScheme(list(ftv), t)
 
     def lookup_name(self, name, pos):
         scm = self.env.get(name, None)
         if scm is None:
-            raise ApeSyntaxError(msg=f'Unbound variable: {name}', pos=pos)
-        return self.instantiate(scm)
+            raise ApeTypeError(msg=f'Unbound variable: {name}', pos=pos)
+        return self.instantiate(scm.value)
 
     def lookup_type_con(self, name, pos):
-        try:
-            (name,) = name
-        except StopIteration:
-            pass
+        if isinstance(name, E.DottedNameExpression):
+            if len(name.parts) == 1:
+                name = name.parts[0]
+            else:
+                raise NotImplementedError()
         if isinstance(name, E.IdExpression):
             name = name.name
         con = self.type_env.get(name, None)
         if con is None:
-            raise ApeSyntaxError(msg=f'Unbound type: {name}', pos=pos)
-        if isinstance(con, Nullary):
-            return con.t, Star
-        return con, con.kind
+            raise ApeTypeError(msg=f'Unbound type: {name}', pos=pos)
+        if isinstance(con.value, Nullary):
+            return con.value.t, Star
+        return con.value, con.value.kind
 
     def solve(self):
         subst = solve({}, self.unifiers)
-        self.env.update({name: scm.apply(subst) for name, scm in self.env.items()})
+        self.env.update({name: Object(scm.value.apply(subst)) for name, scm in self.env.env.items()})
         return subst
 
     def add_name(self, name, t):
         subst = self.solve()
-        self.env[name] = self.generalise(t.apply(subst))
+        self.env[name] = Object(self.generalise(t.apply(subst)))
+
+    def add_type_namespace(self, name, env):
+        environment = self.type_env
+        for part in name.parts[:-1]:
+            environment[part.name] = Namespace({})
+            environment = environment[part.name]
+        environment[name.parts[-1].name] = Namespace(env)
+
+    def add_namespace(self, name, env):
+        environment = self.env
+        for part in name.parts[:-1]:
+            environment[part.name] = Namespace({})
+            environment = environment[part.name]
+        environment[name.parts[-1].name] = Namespace(env)
 
     ######
 
     def infer_error(self, ast):
         try:
-            return ApeError(pos=ast.pos, msg='no overload found for {}'.format(ast.__class__))
+            return ApeInternalError(pos=ast.pos, msg='no overload found for {}'.format(ast.__class__))
         except Exception:
-            return ApeError(pos=0, msg='no overload found for {}'.format(ast.__class__))
+            return ApeInternalError(pos=0, msg='no overload found for {}'.format(ast.__class__))
 
     ######
 
     def parse_toplevel_type(self, ast):
         if not isinstance(ast, E.TypeForallExpression):
-            raise ApeError(pos=ast.pos, msg='Unexpected type expression')
+            raise ApeInternalError(pos=ast.pos, msg='Unexpected type expression')
         with self.subenv():
             names = [tvar.name for tvar in ast.tvars]
             for name in names:
-                self.type_env[name] = Nullary(TypeVariable(name))
+                self.type_env[name] = Object(Nullary(TypeVariable(name)))
             t, k = self.parse_type(ast.expr)
             self.unify_kind(k, Star, ast.pos)
             return TypeScheme(names, t)
@@ -515,24 +587,24 @@ class TypeChecker:
         ...
 
     @infer_kind.on(E.TypeNameExpression)
-    def _(self, ast):
+    def infer_kind_TypeNameExpression(self, ast):
         _, k = self.lookup_type_con(ast.name, ast.pos)
         return k
 
     @infer_kind.on(E.TypeTupleExpression)
-    def _(self, ast):
+    def infer_kind_TypeTupleExpression(self, ast):
         for expr in ast.exprs:
             self.unify_kind(self.infer_kind(expr), Star, ast.pos)
         return Star
 
     @infer_kind.on(E.TypeFunctionExpression)
-    def _(self, ast):
+    def infer_kind_TypeFunctionExpression(self, ast):
         self.unify_kind(self.infer_kind(ast.t1), Star, ast.t1.pos)
         self.unify_kind(self.infer_kind(ast.t2), Star, ast.t2.pos)
         return Star
 
     @infer_kind.on(E.TypeCallExpression)
-    def _(self, ast):
+    def infer_kind_TypeCallExpression(self, ast):
         kc = self.infer_kind(ast.atom)
         kt = [self.infer_kind(t) for t in ast.args]
         kv = self.fresh_kind()
@@ -544,20 +616,20 @@ class TypeChecker:
         ...
 
     @infer_type.on(E.TypeNameExpression)
-    def _(self, ast):
+    def infer_type_TypeNameExpression(self, ast):
         t, _ = self.lookup_type_con(ast.name, ast.pos)
         return t
 
     @infer_type.on(E.TypeTupleExpression)
-    def _(self, ast):
+    def infer_type_TypeTupleExpression(self, ast):
         return TupleType([self.infer_type(expr) for expr in ast.exprs])
 
     @infer_type.on(E.TypeFunctionExpression)
-    def _(self, ast):
+    def infer_type_TypeFunctionExpression(self, ast):
         return FunctionType(self.infer_type(ast.t1), self.infer_type(ast.t2))
 
     @infer_type.on(E.TypeCallExpression)
-    def _(self, ast):
+    def infer_type_TypeCallExpression(self, ast):
         tc = self.infer_type(ast.atom)
         ts = [self.infer_type(t) for t in ast.args]
         return TypeCall(tc, ts)
@@ -568,7 +640,7 @@ class TypeChecker:
 
     ######
 
-    @overloadmethod(use_as_wrapper=True, use_as_modifier=False, error_function=infer_error)
+    @overloadmethod(use_as_wrapper=True, error_function=infer_error)
     def infer(self, original, ast_and_type):
         if isinstance(ast_and_type, self.Types):
             print('You forgot to return the typed node as well as the type itself:', ast_and_type, original)
@@ -579,22 +651,22 @@ class TypeChecker:
         return ret, t
 
     @infer.on(E.EmptyListExpression)
-    def _(self, ast):
+    def infer_EmptyListExpression(self, ast):
         tv = self.fresh()
         return T.EmptyList(), self.Types(ListType(tv))
 
     @infer.on(E.EmptyDictExpression)
-    def _(self, ast):
+    def infer_EmptyDictExpression(self, ast):
         tk = self.fresh()
         tv = self.fresh()
         return T.EmptyDict(), self.Types(DictType(tk, tv))
 
     @infer.on(E.EmptyTupleExpression)
-    def _(self, ast):
+    def infer_EmptyTupleExpression(self, ast):
         return T.EmptyTuple(), self.Types(Unit)
 
     @infer.on(E.SetLiteral)
-    def _(self, ast):
+    def infer_SetLiteral(self, ast):
         v = self.fresh()
         tS = self.Types(SetType(v))
         tV = tS.but(v)
@@ -613,7 +685,7 @@ class TypeChecker:
         return T.SetLit(exprs, ast.pos), tS
 
     @infer.on(E.DictLiteral)
-    def _(self, ast):
+    def infer_DictLiteral(self, ast):
         k, v = self.fresh(), self.fresh()
         tD = self.Types(DictType(k, v))
         tK, tV = tD.but(k), tD.but(v)
@@ -631,12 +703,12 @@ class TypeChecker:
                 self.unify_all(tD, te, expr.expr.pos)
                 exprs.append(T.StarStar(ee, expr.pos))
             else:
-                raise ApeSyntaxError(pos=ast.pos, msg=f'Cannot type-check {ast.__class__.__name__} in dictionary literal')
+                raise ApeInternalError(pos=ast.pos, msg=f'Unexpected {expr.__class__.__name__} in {ast.__class__.__name__}')
 
         return T.DictLit(exprs, ast.pos), tD
 
     @infer.on(E.ListLiteral)
-    def _(self, ast):
+    def infer_ListLiteral(self, ast):
         v = self.fresh()
         tL = self.Types(ListType(v))
         tV = tL.but(v)
@@ -655,7 +727,7 @@ class TypeChecker:
         return T.ListLit(exprs, ast.pos), tL
 
     @infer.on(E.TupleLiteral)
-    def _(self, ast):
+    def infer_TupleLiteral(self, ast):
         ets = [self.infer(expr) for expr in ast.exprs]
         es, ts = unzip(ets)
 
@@ -666,7 +738,7 @@ class TypeChecker:
         return T.Tuple(es), tt
 
     @infer.on(E.RaiseStatement)
-    def _(self, ast):
+    def infer_RaiseStatement(self, ast):
         e1, t1 = self.infer(ast.expr)
         self.unify(t1.vtype, t1.ctype, ast.expr.pos)
 
@@ -679,23 +751,23 @@ class TypeChecker:
         return T.Raise(e1, e2, ast.pos), t1.but(vtype=self.fresh())
 
     @infer.on(E.NoneExpression)
-    def _(self, ast):
-        return T.NoneExpr(), self.Types(Unit)
+    def infer_NoneExpression(self, ast):
+        return T.NoneExpr(ast.pos), self.Types(Unit)
 
     @infer.on(E.StringExpression)
-    def _(self, ast):
-        return T.String(ast.unparsed), self.Types(String)
+    def infer_StringExpression(self, ast):
+        return T.String(ast.unparsed, ast.pos), self.Types(String)
 
     @infer.on(E.FloatExpression)
-    def _(self, ast):
-        return T.Float(ast.format, ast.value), self.Types(Float)
+    def infer_FloatExpression(self, ast):
+        return T.Float(ast.format, ast.value, ast.pos), self.Types(Float)
 
     @infer.on(E.IntExpression)
-    def _(self, ast):
-        return T.Int(ast.base, ast.value), self.Types(Int)
+    def infer_IntExpression(self, ast):
+        return T.Int(ast.base, ast.value, ast.pos), self.Types(Int)
 
     @infer.on(E.IfElseExpr)
-    def _(self, ast):
+    def infer_IfElseExpr(self, ast):
         t1 = self.infer(ast.cond)
         t2 = self.infer(ast.expr)
         t3 = self.infer(ast.alt)
@@ -706,7 +778,7 @@ class TypeChecker:
         return t2
 
     @infer.on(E.IfElifElseStatement)
-    def _(self, ast):
+    def infer_IfElifElseStatement(self, ast):
         eic, tic = self.infer(ast.if_branch.cond)
         self.unify(tic.vtype, Bool, ast.pos)
 
@@ -733,7 +805,7 @@ class TypeChecker:
         return T.IfElifElse(T.IfBranch(eic, eib, ast.if_branch.pos), elifs, eelse, ast.pos), tib
 
     @infer.on(E.UnaryExpression)
-    def _(self, ast):
+    def infer_UnaryExpression(self, ast):
         e, t = self.infer(ast.expr)
 
         tv = self.fresh()
@@ -744,7 +816,7 @@ class TypeChecker:
         return T.Unary(ast.op, e), t.but(tv)
 
     @infer.on(E.ArithExpression)
-    def _(self, ast):
+    def infer_ArithExpression(self, ast):
         e1, t1 = self.infer(ast.left)
         e2, t2 = self.infer(ast.right)
         self.unify_others(t1, t2, ast.pos)
@@ -757,17 +829,17 @@ class TypeChecker:
         return T.Arith(ast.op, e1, e2), t1.but(tv)
 
     @infer.on(E.ReturnStatement)
-    def _(self, ast):
+    def infer_ReturnStatement(self, ast):
         e, t = self.infer(ast.expr)
         self.unify(t.vtype, t.rtype, ast.pos)
         return T.Return(e, ast.pos), t
 
     @infer.on(E.PassStatement)
-    def _(self, ast):
+    def infer_PassStatement(self, ast):
         return T.Pass(ast.pos), self.Types(Unit)
 
     @infer.on(E.CallExpression)
-    def _(self, ast):
+    def infer_CallExpression(self, ast):
         ef, tf = self.infer(ast.atom)
 
         es, ts = [], []
@@ -783,7 +855,7 @@ class TypeChecker:
         return T.Call(ef, es), tf.but(tv)
 
     @infer.on(E.ChainedAssignment)
-    def _(self, ast):
+    def infer_ChainedAssignment(self, ast):
         assignees = ast.assignees[:-1]
         expr = ast.assignees[-1]
 
@@ -796,42 +868,42 @@ class TypeChecker:
                 self.unify(te.vtype, t, a.pos)
                 targets.append(a.name)
             else:
-                raise ApeSyntaxError(pos=a.pos, msg=f'Cannot assign to {a.__class__.__name__}')
+                raise ApeTypeError(pos=a.pos, msg=f'Cannot assign to {a.__class__.__name__}')
 
         return T.Assignment(targets, ee), te.but(Unit)
 
     @infer.on(E.Comparison)
-    def _(self, ast):
+    def infer_Comparison(self, ast):
         e1, t1 = self.infer(ast.a)
         e2, t2 = self.infer(ast.b)
         self.unify_all(t1, t2, ast.pos)
         return T.Comparison(ast.op, e1, e2), t1.but(Bool)
 
     @infer.on(E.IdExpression)
-    def _(self, ast):
-        return T.Id(ast.name), self.Types(self.lookup_name(ast.name, ast.pos))
+    def infer_IdExpression(self, ast):
+        return T.Id(ast.name, ast.pos), self.Types(self.lookup_name(ast.name, ast.pos))
 
     @infer.on(E.TrueExpression)
-    def _(self, ast):
+    def infer_TrueExpression(self, ast):
         return T.Bool(True), self.Types(Bool)
 
     @infer.on(E.FalseExpression)
-    def _(self, ast):
+    def infer_FalseExpression(self, ast):
         return T.Bool(False), self.Types(Bool)
 
     @infer.on(E.YieldExpression)
-    def _(self, ast):
+    def infer_YieldExpression(self, ast):
         e, t = self.infer(ast.expr)
         self.unify(t.vtype, t.ytype, ast.pos)
         return T.Yield(e), t.but(t.stype)
 
     @infer.on(E.AnnotatedAssignment)
-    def _(self, ast):
+    def infer_AnnotatedAssignment(self, ast):
         t, k = self.parse_type(ast.annotation)
         raise
 
     @infer.on(E.Statements)
-    def _(self, ast):
+    def infer_Statements(self, ast):
         t = self.Types()
         exprs = []
         for i, stmt in enumerate(ast.stmts):
@@ -844,7 +916,7 @@ class TypeChecker:
         return E.Statements(exprs), t
 
     @infer.on(E.LogicalAndExpressions)
-    def _(self, ast):
+    def infer_LogicalAndExpressions(self, ast):
         t = self.Types(Bool)
         es = []
         for expr in ast.exprs:
@@ -854,7 +926,7 @@ class TypeChecker:
         return T.LogicalAnd(es), t
 
     @infer.on(E.LogicalOrExpressions)
-    def _(self, ast):
+    def infer_LogicalOrExpressions(self, ast):
         t = self.Types(Bool)
         es = []
         for expr in ast.exprs:
@@ -890,25 +962,27 @@ class TypeChecker:
                 else:
                     exprs.append(None)
                 types.append(tv)
-                self.add_name(p.name, tv)
+                self.add_name(p.name.name, tv)
             #elif isinstance(p, StarVarParams):
             #    pass
             #elif isinstance(p, StarStarKwParams):
             #    pass
             else:
-                raise NotImplementedError(f'{p.__class__.__name__} is not supported yet')
+                raise ApeNotImplementedError(msg=f'{p.__class__.__name__} is not supported yet', pos=p.pos)
         return TupleType(types), exprs, defaults
 
     def infer_function(self, ast):
         with self.subenv():
             tt, exprs, tD = self.infer_params(ast.params)
 
+            self.print_env()
+
             t = self.fresh()
             eb, tb = self.infer(ast.body)
             self.unify(tb.vtype, t, ast.pos)
             self.unify(tb.rtype, t, ast.pos)
-
-            if ast.body.is_gen():
+            
+            if is_gen(ast.body):
                 y, s = self.fresh(), self.fresh()
                 self.unify(tb.ytype, y, ast.pos)
                 self.unify(tb.stype, s, ast.pos)
@@ -927,23 +1001,43 @@ class TypeChecker:
         return exprs, eb, tf, tD
 
     @infer.on(E.FunctionExpression)
-    def _(self, ast):
+    def infer_FunctionExpression(self, ast):
         eparams, ebody, tf, tD = self.infer_function(ast)
         return T.Function(eparams, ebody, ast.pos), tD.but(tf)
 
     @infer.on(E.FunctionDefinition)
-    def _(self, ast):
+    def infer_FunctionDefinition(self, ast):
         eparams, ebody, tf, tD = self.infer_function(ast)
-        self.add_name(ast.name, tf)
+        self.add_name(ast.name.name, tf)
         return T.FunctionDefinition(ast.name, eparams, ebody, ast.pos), tD.but(Unit)
 
+    @infer.on(E.Decorated)
+    def infer_Decorated(self, ast):
+        raise
+
+    @infer.on(E.NamespaceDefinition)
+    def infer_NamespaceDefinition(self, ast):
+        nstype = self.Types.void(Unit)
+        with self.clean_subenv():
+            eb, tb = self.infer(ast.expr)
+            self.unify_all(tb, nstype, ast.pos)
+            child_env = self.env
+            child_type_env = self.type_env
+        self.add_namespace(ast.name, child_env.env)
+        self.add_type_namespace(ast.name, child_type_env.env)
+        return T.NamespaceDefn(ast.name, ast.key, eb, ast.pos), nstype
+
+    @infer.on(E.NamespaceReferenceDefinition)
+    def infer_NamespaceReferenceDefinition(self, ast):
+        return T.NamespaceDefn(ast.name, ast.key, T.NoneExpr(ast.pos), ast.pos), self.Types.void(Unit)
+
     @infer.on(E.ModuleDefinition)
-    def _(self, ast):
+    def infer_ModuleDefinition(self, ast):
         raise
         return T.ModuleDefn(), self.Types(Unit)
 
     @infer.on(E.SignatureDefinition)
-    def _(self, ast):
+    def infer_SignatureDefinition(self, ast):
         with self.subenv():
             types = {}
             names = {}
@@ -951,47 +1045,53 @@ class TypeChecker:
                 if isinstance(decl, E.TypeDeclaration):
                     name = decl.name.name
                     if len(decl.args) == 0:
-                        types[name] = self.type_env[name] = Nullary(self.fresh())
+                        types[name] = self.type_env[name] = Object(Nullary(self.fresh()))
                     else:
-                        types[name] = self.type_env[name] = TypeConstructor(name, ArrowKind([Star for _ in decl.args], Star))
+                        types[name] = self.type_env[name] = Object(TypeConstructor(name, ArrowKind([Star for _ in decl.args], Star)))
                 elif isinstance(decl, E.NameDeclaration):
                     scm = self.parse_toplevel_type(decl.annotation)
                     name = decl.name.name
-                    names[name] = self.env[name] = scm
+                    names[name] = self.env[name] = Object(scm)
                 elif isinstance(decl, E.LawDeclaration):
                     with self.subenv():
-                        self.env.update({name.name: TypeScheme([], self.fresh()) for name in decl.names})
+                        self.env.update({name.name: Object(TypeScheme([], self.fresh())) for name in decl.names})
                         e, t = self.infer(decl.expr)
                         law_type = self.Types.void(Bool)
                         self.unify_all(t, law_type, decl.pos)
                 else:
                     raise RuntimeError()
-            self.type_env[ast.name.name] = Nullary(SignatureType(types, names))
+            self.type_env[ast.name.name] = Object(Nullary(SignatureType(types, names)))
         return T.SignatureDefn(ast.name.name, self.Types(Unit), ast.pos), self.Types(Unit)
 
     def print_env(self):
         print('self.type_env:')
-        for k, v in self.type_env.items():
-            print(f'\t{k!s:<15} {v!s}')
+        self.type_env.printout()
         print('self.env:')
-        for k, v in self.env.items():
-            print(f'\t{k!s:<15} {v!s}')
+        self.env.printout()
 
     def update_with_subst(self, subst):
         for ast, env in self.asts:
             ast.type.vtype = (ast.type.vtype.apply(subst))
-            #ast.type.rtype = (ast.type.rtype.apply(subst))
-            #ast.type.ytype = (ast.type.ytype.apply(subst))
-            #ast.type.stype = (ast.type.stype.apply(subst))
+            ast.type.rtype = (ast.type.rtype.apply(subst))
+            ast.type.ytype = (ast.type.ytype.apply(subst))
+            ast.type.stype = (ast.type.stype.apply(subst))
             ast.type.ctype = (ast.type.ctype.apply(subst))
 
     @contextlib.contextmanager
-    def subenv(self):
+    def clean_subenv(self):
         old, oldT = self.env, self.type_env
-        self.env = self.env.new_child()
-        self.type_env = self.type_env.new_child()
+        self.env = Namespace(collections.ChainMap(BASE_ENVIRONMENT).new_child())
+        self.type_env = Namespace(collections.ChainMap(BASE_TYPE_ENVIRONMENT).new_child())
         yield
         self.env, self.type_env = old, oldT
+
+    @contextlib.contextmanager
+    def subenv(self):
+        old, oldT = self.env.env, self.type_env.env
+        self.env.env = self.env.env.new_child()
+        self.type_env.env = self.type_env.env.new_child()
+        yield
+        self.env.env, self.type_env.env = old, oldT
 
     def unify_others(self, T1, T2, pos):
         self.unify(T1.rtype, T2.rtype, pos)
@@ -1157,11 +1257,12 @@ def solve(su, cs):
 
 ######
 
-def infer(ast):
-    i = TypeChecker()
+def infer(ast, input_text):
+    i = TypeChecker(input_text)
     e, t = i.infer(ast)
     s = solve({}, i.unifiers)
     # s1 = solve_kind({}, i.kind_unifiers)
     print(len(i.unifiers), len(i.kind_unifiers))
     i.update_with_subst(s)
+    i.print_env()
     return e

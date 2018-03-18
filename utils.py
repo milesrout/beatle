@@ -33,10 +33,34 @@ class MyJSONEncoder(json.JSONEncoder):
         if isinstance(o, Ast):
             return (o.type.vtype, o.node)
         if o.__class__.__module__ == 'typednodes' or isinstance(o, Expression):
-            return (o.__class__.__name__, vars(o))
+            return (o.__class__.__name__, {k:v for k,v in vars(o).items() if k != 'pos'})
         if o.__class__.__name__ in ['Token', 'Types']:
             return repr(o)
         return super().default(o)
+
+# to print an s-expression
+#
+# e.g.
+# (macro-definition
+#   (id-expression name)
+#   (statements
+#     (...)
+#     (...)
+#     (...)))
+#
+# 1. Print opening bracket
+# 2. Print first item in list directly
+# 3. If the list contains any lists or the length condition holds
+#    a. Increment the indentation level
+#    b. For each item in the list:
+#       i.   Print a newline
+#       ii.  Print enough spaces to reach the current indentation level
+#       iii. Print the *sub-expression*
+# 4. Otherwise
+#    a. For each item in the list:
+#       i.  Print a space
+#       ii. Print the *sub-expression*
+# 5. Print a closing bracket
 
 pformat = pprint.PrettyPrinter(indent=4, compact=True).pformat
 
@@ -72,14 +96,6 @@ def nviews(iterable, n, *, with_nones=False):
     else:
         return zip(*reversed(iterables))
 
-def compose(f):
-    def outer(g):
-        @functools.wraps(g)
-        def inner(*args, **kwds):
-            return f(g(*args, **kwds))
-        return inner
-    return outer
-
 def tap(f):
     def outer(g):
         @functools.wraps(g)
@@ -89,6 +105,41 @@ def tap(f):
             return x
         return inner
     return outer
+
+def compose(f):
+    def outer(g):
+        @functools.wraps(g)
+        def inner(*args, **kwds):
+            return f(g(*args, **kwds))
+        return inner
+    return outer
+
+def trace(show_counter=False, show_types=False):
+    def outer_wrapper(f):
+        counter = 0
+
+        @functools.wraps(f)
+        def inner_wrapper(*args):
+            nonlocal counter
+            counter += 1
+            local_counter = counter
+
+            if show_types:
+                args_string = ', '.join(
+                        '{}: {}'.format(arg, type(arg).__name__
+                            ) for arg in args)
+            else:
+                args_string = ', '.join(map(str, args))
+
+            ret = f(*args)
+
+            if show_counter:
+                print(local_counter, end=' ')
+            print('{}({}) -> {}'.format(f.__name__, args_string, ret))
+
+            return ret
+        return inner_wrapper
+    return outer_wrapper
 
 def overloadmethod(*, use_as_default=False, use_as_modifier=False, use_as_wrapper=False, error_function=None):
     if use_as_modifier + use_as_default + use_as_wrapper > 1:
@@ -106,8 +157,6 @@ def overloadmethod(*, use_as_default=False, use_as_modifier=False, use_as_wrappe
             modifiers.append(f)
         if use_as_wrapper:
             wrappers.append(f)
-
-        print(f'{f.__name__:<15}', default, modifiers, wrappers)
 
         @functools.wraps(f)
         def overloaded(self, x, *args, **kwds):
@@ -195,14 +244,70 @@ def overload(*, use_as_default=False, use_as_modifier=False):
         return overloaded
     return decorator
 
+def to_sexpr(o, indent=None):
+    return fmt_sexpr(json.loads(MyJSONEncoder().encode(o)))
+
+def fmt_sexpr(o, depth=1):
+    if isinstance(o, dict):
+        return fmt_sexpr(list(o.values()), depth)
+    if isinstance(o, tuple):
+        return fmt_sexpr(list(o), depth)
+    if isinstance(o, list):
+        if len(o) == 0:
+            return '()'
+        if len(o) == 1:
+            return fmt_sexpr(o[0], depth)
+        return fmt_sexpr_list(o, depth)
+    return str(o)
+
+def fmt_sexpr_short(o, depth=1):
+    if isinstance(o, dict):
+        return fmt_sexpr_short(list(o.values()))
+    if isinstance(o, tuple):
+        return fmt_sexpr_short(list(o))
+    if isinstance(o, list):
+        if len(o) == 0:
+            return '()'
+        if len(o) == 1:
+            return fmt_sexpr_short(o[0])
+        return fmt_sexpr_list_short(o)
+    return str(o)
+
+@compose(''.join)
+def fmt_sexpr_list_long(o, depth):
+    yield '('
+    yield fmt_sexpr(o[0], depth + 1)
+    for item in o[1:]:
+        yield '\n'
+        yield (2 * depth * ' ')
+        yield fmt_sexpr(item, depth + 1)
+    yield ')'
+
+@compose(''.join)
+def fmt_sexpr_list_short(o):
+    yield '('
+    yield fmt_sexpr_short(o[0])
+    for item in o[1:]:
+        yield ' '
+        yield fmt_sexpr_short(item)
+    yield ')'
+
+def fmt_sexpr_list(o, depth):
+    result = fmt_sexpr_list_short(o)
+    if max(map(len, result.splitlines())) > 80:
+        return fmt_sexpr_list_long(o, depth)
+    return result
+
 def format_exception(exc):
     tb = exc.__traceback__
     cls = exc.__class__
     return traceback.format_exception(cls, exc, tb)
 
 class ApeError(Exception):
-    def __init__(self, pos, msg):
+    header = None
+    def __init__(self, pos, msg, input_text=None):
         self.msg = msg
+        self.input_text = input_text
         try:
             iter(pos)
             self.pos = list(pos)
@@ -226,6 +331,8 @@ class ApeError(Exception):
         return context
 
     def format_with_context(self, input_text, stacktrace=False):
+        if self.input_text is not None:
+            input_text = self.input_text
         linenumber = input_text.count('\n', 0, self.pos[0]) + 1
         col = self.pos[0] - input_text.rfind('\n', 0, self.pos[0])
 
@@ -236,8 +343,23 @@ class ApeError(Exception):
         else:
             tb = ''
 
-        message = f'{linenumber}:{col}: {self.msg}'
+        header = self.header + '\n' if self.header is not None else ''
+        message = f'{header}{linenumber}:{col}: {self.msg}'
         return '{}{}{}'.format(tb, message, context)
 
+class ApeScanError(ApeError):
+    header = 'ERROR SCANNING INTO TOKENS'
 class ApeSyntaxError(ApeError):
-    pass
+    header = 'ERROR PARSING INTO AST'
+class ApeImportError(ApeError):
+    header = 'ERROR IMPORTING MODULES'
+class ApeMacroError(ApeError):
+    header = 'ERROR EXPANDING MACROS'
+class ApeTypeError(ApeError):
+    header = 'ERROR CHECKING TYPES'
+class ApeCodegenError(ApeError):
+    header = 'ERROR GENERATING CODE'
+class ApeInternalError(ApeError):
+    header = 'ERROR INTERALLY'
+class ApeNotImplementedError(ApeInternalError):
+    header = 'UNIMPLEMENTED FUNCTIONALITY'

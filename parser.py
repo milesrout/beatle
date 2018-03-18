@@ -20,11 +20,17 @@ class Parser:
     string_tokens = [f'{x}_string'
                      for x in 'fs fd fsss fddd s d sss ddd compound'.split()]
 
-    def __init__(self, tokens):
+    def __init__(self, tokens, input_text):
         self.tokens = list(tokens)
         self.index = 0
         self.virtuals = 0
         self.brackets = 0
+
+        class Error(ApeSyntaxError):
+            def __init__(self, msg, pos):
+                super().__init__(msg, pos, input_text=input_text)
+
+        self.Error = Error
 
     @contextlib.contextmanager
     def show_virtuals(self):
@@ -58,7 +64,7 @@ class Parser:
     def get_token(self, type=None):
         tok = self.tokens[self.index]
         if type is not None and tok.type != type:
-            raise ApeSyntaxError(
+            raise self.Error(
                 tok.pos, f"{self.virtuals} - expected '{type}', got {tok}")
         self.next_token()
         return tok
@@ -67,7 +73,7 @@ class Parser:
         actual = self.current_token()
         if actual.type not in expected:
             friendly = '|'.join(expected)
-            raise ApeSyntaxError(
+            raise self.Error(
                 actual.pos,
                 f"{self.virtuals} - expected '{friendly}', got {actual}")
         self.next_token()
@@ -77,7 +83,7 @@ class Parser:
         result = [self.current_token()]
         if result[0].type not in expected:
             friendly = '|'.join(expected)
-            raise ApeSyntaxError(
+            raise self.Error(
                 result[0].pos,
                 f"{self.virtuals} - expected '{friendly}', got {result[0]}")
         while self.accept(*expected):
@@ -90,7 +96,7 @@ class Parser:
         if actual.type != expected:
             lhs = self.tokens[self.index-5:self.index]
             rhs = self.tokens[self.index+1:self.index+6]
-            raise ApeSyntaxError(
+            raise self.Error(
                  actual.pos,
                  f"{self.virtuals} - expected '{expected}', got {actual} "
                  f"...context: {lhs} >>>> {actual} <<<< {rhs}")
@@ -101,7 +107,7 @@ class Parser:
         tok = self.current_token()
         lhs = self.tokens[self.index-5:self.index]
         rhs = self.tokens[self.index+1:self.index+6]
-        raise ApeSyntaxError(
+        raise self.Error(
             tok.pos,
             f'{self.virtuals} - unexpected token: {tok} '
             f'...context: {lhs} >>>> {tok} <<<< {rhs}')
@@ -280,7 +286,7 @@ class Parser:
             name = self.dotted_name()
         self.expect('import')
         if self.accept_next('asterisk'):
-            return E.FromImportStatement(name=name, dots=dots, what=None, pos=pos)
+            return E.FromImportStatement(name=name, dots=dots, what=[], pos=pos)
         if self.accept_next('lparen'):
             what = self.import_as_names()
             self.expect('rparen')
@@ -296,7 +302,7 @@ class Parser:
                 yield 1
 
     def import_as_name(self):
-        name = [self.name()]
+        name = self.dotted_name()
         if self.accept_next('as'):
             return E.ImportName(name, alias=self.name())
         return E.ImportName(name, alias=None)
@@ -307,7 +313,7 @@ class Parser:
             return E.ImportName(name, alias=self.name())
         return E.ImportName(name, alias=None)
 
-    @compose(tuple)
+    @compose(list)
     def import_as_names(self):
         yield self.import_as_name()
         while self.accept_next('comma'):
@@ -315,7 +321,7 @@ class Parser:
                 return
             yield self.import_as_name()
 
-    @compose(tuple)
+    @compose(list)
     def dotted_as_names(self):
         yield self.dotted_as_name()
         while self.accept_next('comma'):
@@ -660,7 +666,7 @@ class Parser:
         body = self.suite()
         return E.ModuleDefinition(name, params, typ, body, pos)
 
-    def decorator(self):
+    def decorator(self, pos):
         name = self.dotted_name()
         if self.accept_next('lparen'):
             if self.accept_next('rparen'):
@@ -670,27 +676,28 @@ class Parser:
         else:
             args = None
         self.expect('newline')
-        return E.Decorator(name, args)
+        return E.Decorator(name, args, pos)
 
     def decorated(self, pos):
-        decorators = self.decorators()
-        pos = self.current_token().pos
+        decorators = self.decorators(pos)
+        pos0 = self.current_token().pos
         if self.accept_next('module'):
-            defn = self.module_def(pos)
+            defn = self.module_def(pos0)
         elif self.accept_next('def'):
-            defn = self.func_def(pos)
+            defn = self.func_def(pos0)
         else:
             self.raise_unexpected()
         return E.Decorated(decorators=decorators, defn=defn, pos=pos)
 
     @compose(list)
-    def decorators(self):
-        yield self.decorator()
-        while self.accept_next('at'):
-            yield self.decorator()
+    def decorators(self, pos):
+        yield self.decorator(pos)
+        while self.accept('at'):
+            pos = self.get_token().pos
+            yield self.decorator(pos)
 
     def macro_def(self, pos):
-        name = self.get_token('id').string
+        name = self.name()
         params = self.parameters()
         self.expect('colon')
         suite = self.suite()
@@ -1234,11 +1241,15 @@ class Parser:
         return E.StringExpression(
             list(self.expect_get_many(*self.string_tokens)))
 
-def single_input(tokens):
-    return Parser(tokens).single_input()
+def single_input(tokens, input_text):
+    return Parser(tokens, input_text).single_input()
 
-def file_input(tokens):
-    return Parser(tokens).file_input()
+def file_input(tokens, input_text):
+    return Parser(tokens, input_text).file_input()
 
-def eval_input(tokens):
-    return Parser(tokens).eval_input()
+def eval_input(tokens, input_text):
+    return Parser(tokens, input_text).eval_input()
+
+def input(tokens, input_text, initial_production='file_input'):
+    production = getattr(Parser(tokens, input_text), initial_production)
+    return production()

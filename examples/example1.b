@@ -1,5 +1,8 @@
 def bar(x, y: int, z=None, w: bool = True):
-    pass
+    return x
+
+def baz(a: int):
+    return (yield a)
 
 def foo(x):
     y = yield x

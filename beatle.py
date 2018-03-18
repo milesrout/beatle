@@ -4,34 +4,19 @@ import argparse
 import os
 import sys
 
-from utils import ApeError, ApeSyntaxError, pformat, to_json
+from utils import ApeError, ApeSyntaxError, pformat, to_json, to_sexpr
 import parser
 import scanner
-import imports
-import macros
+import importer
+import macroexpander
 import typechecker
-import codegen
+import codegenerator
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='ApeVM Beatle Compiler')
-    parser.add_argument('-v', '--verbose', action='count', default=0,
-                        help='enables verbose output mode. the more \'-v\'s, the more output.')
-    parser.add_argument('-s', '--stacktrace', action='store_true', default=False,
-                        help='enable printing of stacktraces on errors that '
-                             'are potentially user errors')
+PHASES = ['SCAN', 'PARSE', 'IMPORTS', 'MACROS', 'TYPES', 'CODEGEN']
+PROMPT = "\U0001F98D> "
 
-    subparsers = parser.add_subparsers(metavar='COMMAND', help='the following commands are built into beatle')
-
-    com_parser = subparsers.add_parser('compile', aliases=['c'], help='compile a single file')
-    com_parser.add_argument('input', metavar='INPUT_FILE', default=sys.stdin, nargs='?', type=argparse.FileType('r'))
-    com_parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=None)
-    com_parser.add_argument('--tokens', type=argparse.FileType('r'), default=open('tokens.json'),
-                            help='a file with a list of tokens and their regexes')
-    com_parser.add_argument('--keywords', type=argparse.FileType('r'), default=open('keywords.json'),
-                            help='a file with a list of literal tokens (keywords)')
-
-    PHASES = ['SCAN', 'PARSE', 'IMPORTS', 'MACROS', 'TYPES', 'CODEGEN']
-    phases = com_parser.add_argument_group(title='phases of compilation')
+def add_phase_arguments(parser):
+    phases = parser.add_argument_group(title='phases of compilation')
 
     # These options *set* the phases, so they are mutually exclusive.
     ph_mutex = phases.add_mutually_exclusive_group()
@@ -59,10 +44,135 @@ def parse_args():
     #                       const='ADV_OPT',
     #                       help='advanced optimisations')
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='ApeVM Beatle Compiler')
+    parser.add_argument('-v', '--verbose', action='count', default=0,
+                        help='enables verbose output mode. the more \'-v\'s, the more output.')
+    parser.add_argument('-s', '--stacktrace', action='store_true', default=False,
+                        help='enable printing of stacktraces on errors that '
+                             'are potentially user errors')
+    parser.add_argument('--tokens', type=argparse.FileType('r'), default=open('tokens.json'),
+                        help='a file with a list of tokens and their regexes')
+    parser.add_argument('--keywords', type=argparse.FileType('r'), default=open('keywords.json'),
+                        help='a file with a list of literal tokens (keywords)')
+
+    subparsers = parser.add_subparsers(metavar='COMMAND', help='the following commands are built into beatle')
+
+    repl_parser = subparsers.add_parser('repl', aliases=['r'], help='type beatle code directly into a read-eval-print loop')
+    add_phase_arguments(repl_parser)
+
+    com_parser = subparsers.add_parser('compile', aliases=['c'], help='compile a single file')
+    com_parser.add_argument('input', metavar='INPUT_FILE', default=sys.stdin, nargs='?', type=argparse.FileType('r'))
+    com_parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=None)
+    add_phase_arguments(com_parser)
+
     build_parser = subparsers.add_parser('build', aliases=['b'], help='build a file along with all its dependencies')
     build_parser.add_argument('input', metavar='INPUT_FILE', default=sys.stdin, nargs='?', type=argparse.FileType('r'))
 
+    repl_parser.set_defaults(func=cmd_repl)
+    com_parser.set_defaults(func=cmd_compile)
+    build_parser.set_defaults(func=cmd_build)
+
     return parser.parse_args()
+
+def validate_phases(args):
+    if args.verbose >= 2:
+        print('args:')
+        print(pformat(vars(args)))
+
+    if 'PARSE' in args.phases and 'SCAN' not in args.phases:
+        print('Unworkable --phase arguments: '
+              'PARSE phase requires SCAN phase')
+        return False
+
+    if 'IMPORTS' in args.phases and 'PARSE' not in args.phases:
+        print('Unworkable --phase arguments: '
+              'IMPORTS phase requires SCAN and PARSE phases')
+        return False
+
+    if 'MACROS' in args.phases and 'IMPORTS' not in args.phases:
+        print('Unworkable --phase arguments: '
+              'MACROS phase requires SCAN, PARSE and IMPORTS phases')
+        return False
+
+    if 'TYPES' in args.phases and 'MACROS' not in args.phases:
+        print('Unworkable --phase arguments: '
+              'TYPES phase requires SCAN, PARSE, IMPORTS and MACROS phases')
+        return False
+
+    if 'CODEGEN' in args.phases and 'TYPES' not in args.phases:
+        print('Unworkable --phase arguments: '
+              'CODEGEN phase requires SCAN, PARSE, IMPORTS, MACROS and TYPES phases')
+        return False
+
+    return True
+
+
+def scan(input_text, args, regexp=None):
+    if regexp is None:
+        regexp = scanner.Regexp.from_files(args.keywords, args.tokens)
+    tokens = scanner.scan(args.verbose, regexp, input_text)
+
+    if args.verbose >= 2:
+        print('tokens:')
+        print(pformat(tokens))
+
+    return tokens, regexp
+
+
+def parse(tokens, args, input_text, initial_production):
+    ast = parser.input(tokens, input_text, initial_production=initial_production)
+
+    if args.verbose >= 1:
+        print('ast:')
+        print(to_sexpr(ast, indent=None if args.verbose == 1 else 4))
+
+    return ast
+
+
+def imports(ast, args, input_text, regexp):
+    try:
+        base_search_path = os.path.dirname(args.input.name)
+    except AttributeError:
+        base_search_path = os.path.abspath('.')
+    ast = importer.process(ast, base_search_path, (args, regexp, scan, parse))
+
+    if args.verbose >= 1:
+        print('import-expanded ast:')
+        print(to_sexpr(ast, indent=None if args.verbose == 1 else 4))
+
+    return ast
+
+
+def macros(ast, args, input_text):
+    ast = macroexpander.process(ast)
+
+    if args.verbose >= 1:
+        print('macro-expanded ast:')
+        print(to_sexpr(ast, indent=None if args.verbose == 1 else 4))
+
+    return ast
+
+
+def types(ast, args, input_text):
+    ast = typechecker.infer(ast, input_text)
+
+    if args.verbose >= 1:
+        print('type-annotated ast:')
+        print(to_sexpr(ast, indent=None if args.verbose == 1 else 4))
+
+    return ast
+
+
+def generate(ast, args, input_text):
+    bytecode = codegenerator.generate(ast)
+
+    if args.verbose >= 1:
+        print('bytecode:')
+        print(to_sexpr(bytecode, indent=None if args.verbose == 1 else 4))
+
+    return bytecode
+
 
 # simple usage:
 # ./beatle.py compile ./examples/stack.b            --> creates stack.bo which contains bytecode and interface
@@ -72,123 +182,80 @@ def parse_args():
 # real usage:
 # ./beatle.py build ./examples/two-stack-queue.b    --> does all of the above
 
-def main():
-    args = parse_args()
-    verbosity = args.verbose
+# repl usage:
+# ./beatle.py repl
 
-    if verbosity >= 2:
-        print('args:')
-        print(pformat(vars(args)))
+def cmd_repl(args):
+    if not validate_phases(args):
+        sys.exit(1)
 
-    if 'ADV_OPT' in args.phases and 'BASIC_OPT' not in args.phases:
-        args.phases.append('BASIC_OPT')
+    if 'SCAN' in args.phases:
+        regexp = scanner.Regexp.from_files(args.keywords, args.tokens)
+    while True:
+        input_text = input(PROMPT)
+        try:
+            process_phases(input_text, args, regexp=regexp, initial_production='single_input')
+        except ApeError:
+            pass
 
-    if 'PARSE' in args.phases and 'SCAN' not in args.phases:
-        print('Unworkable --phase arguments: PARSE phase requires SCAN phase')
+def cmd_build(args):
+    raise
 
-    if 'IMPORTS' in args.phases and 'PARSE' not in args.phases:
-        print('Unworkable --phase arguments: '
-              'IMPORTS phase requires SCAN and PARSE phases')
-
-    if 'MACROS' in args.phases and 'IMPORTS' not in args.phases:
-        print('Unworkable --phase arguments: '
-              'MACROS phase requires SCAN, PARSE and IMPORTS phases')
-
-    if 'TYPES' in args.phases and 'MACROS' not in args.phases:
-        print('Unworkable --phase arguments: '
-              'TYPES phase requires SCAN, PARSE, IMPORTS and MACROS phases')
-
-    if 'CODEGEN' in args.phases and 'TYPES' not in args.phases:
-        print('Unworkable --phase arguments: '
-              'CODEGEN phase requires SCAN, PARSE, IMPORTS, MACROS and TYPES phases')
+def cmd_compile(args):
+    if not validate_phases(args):
+        sys.exit(1)
 
     input_text = args.input.read()
 
-    if verbosity >= 2:
+    if args.verbose >= 2:
         print('file:')
         print(input_text)
 
+    try:
+        process_phases(input_text, args, regexp=None, initial_production='file_input')
+    except ApeError:
+        sys.exit(1)
+
+def process_phases(input_text, args, regexp=None, initial_production='file_input'):
     if 'SCAN' not in args.phases:
         return
 
     try:
-        tokens = scanner.scan(args.keywords, args.tokens, input_text)
+        tokens, regexp = scan(input_text, args, regexp=regexp)
+
+        if 'PARSE' not in args.phases:
+            return tokens
+
+        ast = parse(tokens, args, input_text, initial_production=initial_production)
+
+        if 'IMPORTS' not in args.phases:
+            return ast
+
+        ast = imports(ast, args, input_text, regexp)
+
+        if 'MACROS' not in args.phases:
+            return ast
+
+        ast = macros(ast, args, input_text)
+
+        if 'TYPES' not in args.phases:
+            return ast
+
+        ast = types(ast, args, input_text)
+
+        if 'CODEGEN' not in args.phases:
+            return ast
+
+        bytecode = generate(ast, args, input_text)
+        return bytecode
+
     except ApeError as exc:
-        print('ERROR SCANNING')
-        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
-        return
+        print(exc.format_with_context(input_text=input_text, stacktrace=args.stacktrace))
+        raise
 
-    if verbosity >= 2:
-        print('tokens:')
-        print(pformat(tokens))
-
-    if 'PARSE' not in args.phases:
-        return
-
-    try:
-        ast = parser.file_input(tokens)
-    except ApeSyntaxError as exc:
-        print('ERROR PARSING')
-        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
-        return
-
-    if verbosity >= 1:
-        print('ast:')
-        print(to_json(ast, indent=None if verbosity == 1 else 4))
-
-    if 'IMPORTS' not in args.phases:
-        return
-
-    base_search_path = os.path.dirname(args.input.name)
-    print(base_search_path)
-    try:
-        ast = imports.process(ast, base_search_path)
-    except ApeError as exc:
-        print('IMPORT ERROR')
-        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
-        return
-
-    if 'MACROS' not in args.phases:
-        return
-
-    try:
-        ast = macros.process(ast)
-    except ApeError as exc:
-        print('MACRO EXPANSION ERROR')
-        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
-        return
-
-    if verbosity >= 1:
-        print('macro-expanded ast:')
-        print(to_json(ast, indent=None if verbosity == 1 else 4))
-
-    if 'TYPES' not in args.phases:
-        return
-
-    try:
-        ast = typechecker.infer(ast)
-    except ApeError as exc:
-        print('TYPE ERROR')
-        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
-        return
-
-    if verbosity >= 1:
-        print('type-annotated ast:')
-        print(to_json(ast, indent=None if verbosity == 1 else 4))
-
-    if 'CODEGEN' not in args.phases:
-        return
-
-    try:
-        bytecode = codegen.generate(ast)
-    except ApeError as exc:
-        print('ERROR GENERATING CODE')
-        print(exc.format_with_context(input_text, stacktrace=args.stacktrace))
-        return
-
-    if verbosity >= 1:
-        print('bytecode:')
-        print(to_json(bytecode, indent=None if verbosity == 1 else 4))
+def main():
+    args = parse_args()
+    args.func(args)
 
 if __name__ == '__main__':
     main()

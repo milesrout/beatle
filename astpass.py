@@ -5,7 +5,7 @@ class AstPass:
     """A compiler pass over the abstract syntax tree"""
 
     def visit(self, ast):
-        result = self.do_pass(ast)
+        result = self.do_visit(ast)
         if not hasattr(result, 'pos'):
             try:
                 result.pos = ast.pos
@@ -15,7 +15,6 @@ class AstPass:
 
 class DeepAstPass(AstPass):
     """A compiler pass over all syntax tree nodes"""
-
     def visit(self, ast):
         return self.do_visit(ast)
 
@@ -31,10 +30,12 @@ class DeepAstPass(AstPass):
 
     @do_visit.wrapper()
     def do_visit_wrapper(self, ast, new):
+        return self.override_do_visit_wrapper(ast, new)
+
+    def override_do_visit_wrapper(self, ast, new):
         if ast is new:
             return ast
-        if new is None:
-            raise NotImplementedError(ast.__class__)
+
         cls, args = new
         try:
             return cls(*args)
@@ -200,6 +201,14 @@ class DeepAstPass(AstPass):
     def do_visit_LambdaExpression(self, ast):
         return E.LambdaExpression, (self.visit_all(ast.params), self.visit(ast.body), ast.pos)
 
+    @do_visit.on(E.NamespaceDefinition)
+    def do_visit_NamespaceDefinition(self, ast):
+        return E.NamespaceDefinition, (self.visit(ast.name), ast.key, self.visit(ast.expr), ast.pos)
+
+    @do_visit.on(E.NamespaceReferenceDefinition)
+    def do_visit_NamespaceReferenceDefinition(self, ast):
+        return E.NamespaceReferenceDefinition, (self.visit(ast.name), ast.key, ast.pos)
+
     @do_visit.on(E.SignatureDefinition)
     def do_visit_SignatureDefinition(self, ast):
         return E.SignatureDefinition, (self.visit(ast.name), self.visit_all(ast.body), ast.pos)
@@ -230,7 +239,7 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.ImportName)
     def do_visit_ImportName(self, ast):
-        return E.ImportName, (self.visit(ast.name), self.visit(ast.alias), ast.pos)
+        return E.ImportName, (self.visit(ast.name), self.visit_maybe(ast.alias))
 
     @do_visit.on(E.ImportStatement)
     def do_visit_ImportStatement(self, ast):
@@ -239,7 +248,7 @@ class DeepAstPass(AstPass):
     @do_visit.on(E.FromImportStatement)
     def do_visit_FromImportStatement(self, ast):
         name = self.visit_maybe(ast.name)
-        what = self.visit_maybe(ast.what)
+        what = self.visit_all(ast.what)
         return E.FromImportStatement, (name, ast.dots, what, ast.pos)
 
     @do_visit.on(E.ChainedAssignment)
@@ -280,7 +289,7 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.LogicalNotExpression)
     def do_visit_LogicalNotExpression(self, ast):
-        return E.LogicalNotExpression, (self.visit(ast.expr), ast.pos)
+        return E.LogicalNotExpression, (self.visit(ast.expr),)
 
     @do_visit.on(E.BitOrExpression)
     def do_visit_BitOrExpression(self, ast):
@@ -304,7 +313,7 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.UnaryExpression)
     def do_visit_UnaryExpression(self, ast):
-        return E.UnaryExpression, (ast.op, self.visit(ast.expr))
+        return E.UnaryExpression, (ast.op, self.visit(ast.expr), ast.pos)
 
     @do_visit.on(E.PowerExpression)
     def do_visit_PowerExpression(self, ast):

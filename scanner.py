@@ -5,7 +5,7 @@ import re
 
 from collections import namedtuple
 
-from utils import ApeSyntaxError, variable_content_tokens
+from utils import ApeScanError, variable_content_tokens, pformat
 
 IndentLine = namedtuple('IndentLine', 'indent pos endpos content')
 
@@ -18,33 +18,34 @@ def is_space(tok) -> bool:
 def count_indent(token):
     if all(x == ' ' for x in token.string):
         return len(token.string)
-    raise ApeSyntaxError(msg='Tab characters are not valid as indentation', pos=token.pos)
+    raise ApeScanError(msg='Tab characters are not valid as indentation', pos=token.pos)
 
-class Scanner:
-    def make_regex(self, keywords_file, tokens_file):
+class Regexp:
+    @staticmethod
+    def from_files(keywords_file, tokens_file):
         """Create a regex from the contents of a keywords array and tokens dict
 
         The keywords array and tokens dict are obtained from files."""
 
         keywords_list = json.load(keywords_file, object_pairs_hook=collections.OrderedDict)
-        keywords = {k.lower(): f'\\b{k}\\b' for k in keywords_list}
-
-        tokens = json.load(tokens_file, object_pairs_hook=collections.OrderedDict)
+        tokens = {k.lower(): f'\\b{k}\\b' for k in keywords_list}
 
         # this ensures that keywords come before the ID token
-        keywords.update(tokens)
-        tokens = keywords
+        tokens.update(json.load(tokens_file, object_pairs_hook=collections.OrderedDict))
 
-        token_types = list(tokens.keys())
+        return Regexp(tokens)
 
+    def __init__(self, tokens):
+        self.token_types = list(tokens.keys())
         patterns = [f'({pat})' for pat in tokens.values()]
         regex = '|'.join(patterns)
-        return token_types, re.compile(regex)
+        self.pattern = re.compile(regex)
 
+class Scanner:
     def lex(self):
         i = 0
         while i < len(self.input_text):
-            match = self.pattern.match(self.input_text, i)
+            match = self.regexp.pattern.match(self.input_text, i)
             if match is None:
                 bad = self.input_text[i:]
                 raise self.Error(f'cannot match at {i}: {bad}', pos=i)
@@ -52,7 +53,9 @@ class Scanner:
             if start != i:
                 gap = self.input_text[i:start]
                 raise self.Error(f'unlexable gap between {i} and {start}: {gap}', pos=i)
-            token_type = self.token_types[match.lastindex - 1]
+            token_type = self.regexp.token_types[match.lastindex - 1]
+            if token_type == 'tab':
+                raise self.Error(msg='Tab characters are not valid as indentation', pos=i)
             if token_type != 'comment':
                 yield self.Token(type=token_type, string=match.group(match.lastindex), pos=i)
             i = end
@@ -74,6 +77,8 @@ class Scanner:
                     indent += count_indent(token)
             else:
                 line.append(token)
+        if len(line) != 0:
+            yield IndentLine(indent=indent, pos=pos, endpos=line[-1].pos, content=line)
         p = len(self.input_text) - 1
         yield IndentLine(indent=0, pos=p, endpos=p, content=[])
 
@@ -166,8 +171,8 @@ class Scanner:
                         diff = len(token.string) - len(matching.string)
             yield token
         if len(indent_stack) != 0:
-            raise ApeSyntaxError(pos=indent_stack[-1].pos,
-                                 msg=f'mismatched indents somehow: {indent_stack[-1]}')
+            raise self.Error(pos=indent_stack[-1].pos,
+                             msg=f'mismatched indents somehow: {indent_stack[-1]}')
 
     def add_eof_token(self, tokens):
         eof = self.Token('EOF', '', pos=len(self.input_text))
@@ -188,8 +193,10 @@ class Scanner:
             raise RuntimeError(f'Something weird is going on: {total} {totals}')
         return t2
 
-    def __init__(self, keywords, tokens, input_text):
-        self.token_types, self.pattern = self.make_regex(keywords, tokens)
+    def __init__(self, verbosity, regexp, input_text):
+        self.verbosity = verbosity
+        #self.token_types, self.pattern = make_regex(keywords, tokens)
+        self.regexp = regexp
         self.input_text = input_text
 
         def col(pos):
@@ -198,9 +205,9 @@ class Scanner:
         def line(pos):
             return self.input_text.count('\n', 0, pos) + 1
 
-        class Error(ApeSyntaxError):
+        class Error(ApeScanError):
             def __init__(this, msg, pos):
-                super().__init__(msg=msg, pos=pos)
+                super().__init__(msg=msg, pos=pos, input_text=self.input_text)
 
         class Token:
             def __init__(this, type, string, pos, virtual=0):
@@ -242,6 +249,8 @@ class Scanner:
 
     def scan(self):
         tokens = self.lex()
+        if self.verbosity >= 3:
+            print(pformat(['Tokens:', tokens]))
 
         # Some of these return complex objects, not just
         # tokens, despite what 'tokens = step(tokens)'
@@ -257,8 +266,15 @@ class Scanner:
             # self.check_indents,
         ]
 
-        for step in lexing_steps:
-            tokens = step(tokens)
+        if self.verbosity >= 3:
+            for step in lexing_steps:
+                tokens = step(tokens)
+                tokens, tokens1 = itertools.tee(tokens)
+                print(f'{step.__name__}:')
+                print(pformat(list(tokens1)))
+        else:
+            for step in lexing_steps:
+                tokens = step(tokens)
 
         return tokens
 

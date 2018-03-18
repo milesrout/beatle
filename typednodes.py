@@ -230,6 +230,19 @@ class Function:
 #        self.body = body
 #        self.pos = pos
 #
+class NamespaceDefn:
+    def __init__(self, name, key, expr, pos):
+        self.name = name
+        self.key = key
+        self.expr = expr
+        self.pos = pos
+
+class NamespaceRefDefn:
+    def __init__(self, name, key, pos):
+        self.name = name
+        self.key = key
+        self.pos = pos
+
 class SignatureDefn:
     def __init__(self, name, body, pos):
         self.name = name
@@ -409,7 +422,7 @@ Call = namedtuple('Call', 'f args')
 #        self.expr = expr
 #        self.pos = expr.pos
 
-Int = namedtuple('Int', 'base value')
+Int = namedtuple('Int', 'base value pos')
 
 #class IntExpression(Expression):
 #    def __init__(self, token):
@@ -420,11 +433,11 @@ Int = namedtuple('Int', 'base value')
 #        return False
 #
 
-Float = namedtuple('Float', 'format value')
+Float = namedtuple('Float', 'format value pos')
 
-Id = namedtuple('Id', 'name')
+Id = namedtuple('Id', 'name pos')
 
-String = namedtuple('String', 'string')
+String = namedtuple('String', 'string pos')
 
 #class StringExpression(Expression):
 #    def __init__(self, unparsed):
@@ -438,7 +451,9 @@ String = namedtuple('String', 'string')
 #    def __init__(self, pos):
 #        self.pos = pos
 
-NoneExpr = namedtuple('NoneExpr', [])
+class NoneExpr:
+    def __init__(self, pos):
+        self.pos = pos
 Bool = namedtuple('Bool', 'value')
 
 #class TrueExpression(Expression):
