@@ -1,4 +1,4 @@
-from utils import to_json, compose, overloadmethod, ApeInternalError
+from utils import compose, overloadmethod, ApeInternalError
 import astnodes as E
 from astpass import DeepAstPass
 import pathlib

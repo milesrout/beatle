@@ -1,6 +1,5 @@
-import contextlib
-from utils import compose, overloadmethod, to_json
-from astpass import AstPass, DeepAstPass
+from utils import overloadmethod
+from astpass import DeepAstPass
 import astnodes as E
 
 # MacroExpander should look recursively at all forms it is given.

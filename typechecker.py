@@ -373,7 +373,7 @@ class Namespace:
         if isinstance(key, E.DottedNameExpression):
             raise
         return self.env[key]
-    
+
     def __setitem__(self, key, value):
         if isinstance(key, E.DottedNameExpression):
             raise
@@ -396,7 +396,7 @@ BASE_ENVIRONMENT = {
     'str':   Object(TypeScheme(['a'], FunctionType(TypeVariable('a'), String))),
     'set':   Object(TypeScheme(['a'], FunctionType(Unit, SetType(TypeVariable('a'))))),
     'cons':  Object(TypeScheme(['a'], FunctionType(TupleType([TypeVariable('a'), ListType(TypeVariable('a'))]),
-                                            ListType(TypeVariable('a'))))),
+                                                   ListType(TypeVariable('a'))))),
     'RuntimeError': Object(TypeScheme([], FunctionType(String, Error))),
 }
 
@@ -981,7 +981,7 @@ class TypeChecker:
             eb, tb = self.infer(ast.body)
             self.unify(tb.vtype, t, ast.pos)
             self.unify(tb.rtype, t, ast.pos)
-            
+
             if is_gen(ast.body):
                 y, s = self.fresh(), self.fresh()
                 self.unify(tb.ytype, y, ast.pos)

@@ -1,10 +1,11 @@
-from utils import overloadmethod, compose, ApeInternalError, trace
+from utils import overloadmethod, ApeInternalError
 from astpass import DeepAstPass
 import astnodes as E
 
 class Sentinel:
     def __init__(self, value):
         self.value = value
+
     def __repr__(self):
         return f'Sentinel({self.value!r})'
 
@@ -15,14 +16,14 @@ def is_iterable(x):
     try:
         iter(x)
         return True
-    except:
+    except TypeError:
         return False
 
 class IsGenPass(DeepAstPass):
     """A compiler pass to test for the presence of generators"""
 
     def true_args(self, args):
-        return any(self.true_arg(a) for a in args if is_iterable(a) or is_sentinel(a))
+        return any(self.true_arg(a) for a in args if a is not args and (is_iterable(a) or is_sentinel(a)))
 
     def true_arg(self, arg):
         if is_iterable(arg):
@@ -41,7 +42,7 @@ class IsGenPass(DeepAstPass):
         # no atomic expressions can yield
         if ast is new:
             return Sentinel(False)
-        
+
         cls, args = new
         try:
             return Sentinel(self.true_args(args))
