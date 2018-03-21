@@ -1,4 +1,4 @@
-from utils import compose, overloadmethod, ApeInternalError
+from utils import compose, overloadmethod, ApeError, ApeImportError, ApeInternalError
 import astnodes as E
 from astpass import DeepAstPass
 import pathlib
@@ -59,11 +59,14 @@ class ImportExpander(DeepAstPass):
 
     @visit.on(E.FromImportStatement)
     def _(self, ast):
-        self.handler.load_module(ast.name)
+        raise
+        self.handler.load_module(ast.name, ast.pos)
         return E.NoneExpression()
 
 def process(ast, base_search_path, dirty_hack):
-    ih = ImportHandler(base_search_path, dirty_hack)
-    ast = ih.process(ast)
-    print(ih.loaded_modules)
-    return ast
+    try:
+        ih = ImportHandler(base_search_path, dirty_hack)
+        ast = ih.process(ast)
+        return ast
+    except ApeError as exc:
+        raise ApeImportError(msg=exc.msg, pos=exc.pos) from exc

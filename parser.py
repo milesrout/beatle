@@ -263,7 +263,7 @@ class Parser:
 
     def yield_expr(self, pos, *terminators):
         if self.accept_next('from'):
-            return E.YieldExpression(expr=self.test(), pos=pos)
+            return E.YieldFromExpression(expr=self.test(), pos=pos)
         if self.accept(*terminators):
             return E.YieldExpression(expr=E.TupleLiteral([], pos=pos), pos=pos)
         exprs = self.testlist()

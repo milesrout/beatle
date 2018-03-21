@@ -7,8 +7,9 @@ nonzero_result = 1
 if a == 0:
     if b:
         if c:
-            (print("hello"),
-             print("hello"))
+            pass
+            #(print("hello"),
+            # print("hello"))
         print("goodbye")
     print("world")
 print("okay")

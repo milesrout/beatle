@@ -52,16 +52,10 @@ class SetLiteral(Expression):
         self.exprs = exprs
         self.pos = pos
 
-    def is_gen(self):
-        return any(e.is_gen() for e in self.exprs)
-
 class DictLiteral(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
-
-    def is_gen(self):
-        return any(e.is_gen() for e in self.exprs)
 
 class DictPair(Expression):
     def __init__(self, key_expr, value_expr):
@@ -74,16 +68,10 @@ class ListLiteral(Expression):
         self.exprs = exprs
         self.pos = pos
 
-    def is_gen(self):
-        return any(e.is_gen() for e in self.exprs)
-
 class TupleLiteral(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
-
-    def is_gen(self):
-        return any(e.is_gen() for e in self.exprs)
 
 class Quasiquote(Expression):
     def __init__(self, expr, pos):
@@ -110,9 +98,6 @@ class Statements(Expression):
         self.stmts = stmts
         self.pos = stmts[0].pos
 
-    def is_gen(self):
-        return any(s.is_gen() for s in self.stmts)
-
 class RaiseStatement(Expression):
     def __init__(self, expr, original, pos):
         self.expr = expr
@@ -131,24 +116,20 @@ class YieldExpression(Expression):
         self.expr = expr
         self.pos = pos
 
-    def is_gen(self):
-        return True
+class YieldFromExpression(Expression):
+    def __init__(self, expr, pos):
+        self.expr = expr
+        self.pos = pos
 
 class DelStatement(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
 
-    def is_gen(self):
-        return any(e.is_gen() for e in self.exprs)
-
 class AssertStatement(Expression):
     def __init__(self, exprs, pos):
         self.exprs = exprs
         self.pos = pos
-
-    def is_gen(self):
-        return any(e.is_gen() for e in self.exprs)
 
 class GlobalStatement(Expression):
     def __init__(self, names, pos):
@@ -415,9 +396,6 @@ class ArithExpression(Expression):
         self.right = right
         self.pos = left.pos
 
-    def is_gen(self):
-        return self.left.is_gen() or self.right.is_gen()
-
 class UnaryExpression(Expression):
     def __init__(self, op, expr, pos):
         self.op = op
@@ -442,9 +420,6 @@ class CallExpression(Expression):
         self.args = args
         self.pos = pos
 
-    def is_gen(self):
-        return self.atom.is_gen() or any(e.is_gen() for e in self.args)
-
 class IndexExpression(Expression):
     def __init__(self, atom, indices, pos):
         self.atom = atom
@@ -463,42 +438,27 @@ class IntExpression(Expression):
         self.value = token.string
         self.pos = token.pos
 
-    def is_gen(self):
-        return False
-
 class FloatExpression(Expression):
     def __init__(self, token):
         self.format = token.type
         self.value = token.string
         self.pos = token.pos
 
-    def is_gen(self):
-        return False
-
 class DottedNameExpression(Expression):
     def __init__(self, parts):
         self.parts = parts
         self.pos = parts[0].pos
-
-    def is_gen(self):
-        return False
 
 class IdExpression(Expression):
     def __init__(self, name):
         self.name = name.string
         self.pos = name.pos
 
-    def is_gen(self):
-        return False
-
 class StringExpression(Expression):
     def __init__(self, unparsed):
         'Unparsed is a list of strings'
         self.unparsed = unparsed
         self.pos = unparsed[0].pos
-
-    def is_gen(self):
-        return False
 
 class EllipsisExpression(Expression):
     def __init__(self, pos):
@@ -581,9 +541,6 @@ class PassStatement(Expression):
     def __init__(self, pos):
         self.pos = pos
 
-    def is_gen(self):
-        return False
-
 class BreakStatement(Expression):
     def __init__(self, pos):
         self.pos = pos
@@ -596,9 +553,6 @@ class ReturnStatement(Expression):
     def __init__(self, expr, pos):
         self.pos = pos
         self.expr = expr
-
-    def is_gen(self):
-        return self.expr.is_gen()
 
 class TypeNameExpression(Expression):
     def __init__(self, name):
@@ -697,9 +651,6 @@ class Comparison(Expression):
         self.a = a
         self.b = b
         self.pos = pos
-
-    def is_gen(self):
-        return self.a.is_gen() or self.b.is_gen()
 
 class ComparisonChain(Expression):
     def __new__(self, chain, pos):

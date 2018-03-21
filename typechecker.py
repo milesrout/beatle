@@ -392,7 +392,15 @@ class Object:
         self.value = value
 
 BASE_ENVIRONMENT = {
-    'print': Object(TypeScheme([], FunctionType(String, Unit))),
+    # Want to add 'next', 'send', 'throw', etc. for generators.
+    # But we need linear types before we can do that. Then we can say
+    # iter:   Iterable(y,r)         ~> r + (y, Iterator(y,r)),
+    # next:   Iterator(y,r)         ~> r + (y, Iterator(y,r)),
+    # start:  Generator(y,s,r)      ~> r + (y, Coroutine(y,s,r)), and
+    # send:   (s, Coroutine(y,s,r)) ~> r + (y, Coroutine(y,s,r)),
+    # where ~> is the LinearArrowType, Iterable(y,r) = Generator(y,(),r),
+    # and Iterator(y,r) = Coroutine(y,(),r).
+    'print': Object(TypeScheme([], FunctionType(Any, Unit))),
     'str':   Object(TypeScheme(['a'], FunctionType(TypeVariable('a'), String))),
     'set':   Object(TypeScheme(['a'], FunctionType(Unit, SetType(TypeVariable('a'))))),
     'cons':  Object(TypeScheme(['a'], FunctionType(TupleType([TypeVariable('a'), ListType(TypeVariable('a'))]),
@@ -430,6 +438,7 @@ class TypeChecker:
     def __init__(self, input_text):
         self.env = Namespace(collections.ChainMap(BASE_ENVIRONMENT).new_child())
         self.type_env = Namespace(collections.ChainMap(BASE_TYPE_ENVIRONMENT).new_child())
+        self.subst = {}
         self.unifiers = []
         self.kind_unifiers = []
         self.fresh_vars = (f'a{i}' for i in itertools.count(1))
@@ -539,9 +548,9 @@ class TypeChecker:
         return con.value, con.value.kind
 
     def solve(self):
-        subst = solve({}, self.unifiers)
-        self.env.update({name: Object(scm.value.apply(subst)) for name, scm in self.env.env.items()})
-        return subst
+        self.subst = solve(self.subst, self.unifiers)
+        self.env.update({name: Object(scm.value.apply(self.subst)) for name, scm in self.env.env.items()})
+        return self.subst
 
     def add_name(self, name, t):
         subst = self.solve()
@@ -729,7 +738,7 @@ class TypeChecker:
     @infer.on(E.TupleLiteral)
     def infer_TupleLiteral(self, ast):
         ets = [self.infer(expr) for expr in ast.exprs]
-        es, ts = unzip(ets)
+        es, ts = unzip(ets) if len(ets) > 0 else [], []
 
         tt = self.Types(TupleType([t.vtype for t in ts]))
         for e, t in ets:
@@ -885,11 +894,31 @@ class TypeChecker:
 
     @infer.on(E.TrueExpression)
     def infer_TrueExpression(self, ast):
-        return T.Bool(True), self.Types(Bool)
+        return T.Bool(True, ast.pos), self.Types(Bool)
 
     @infer.on(E.FalseExpression)
     def infer_FalseExpression(self, ast):
-        return T.Bool(False), self.Types(Bool)
+        return T.Bool(False, ast.pos), self.Types(Bool)
+
+    @infer.on(E.YieldFromExpression)
+    def infer_YieldFromExpression(self, ast):
+        t = self.Types()
+
+        tc = CoroutineType(self.fresh(), self.fresh(), self.fresh())
+        ef, tf = self.infer(ast.expr)
+        self.unify(tc, tf.vtype)
+
+        self.unify(t.vtype, tc.rtype)
+        self.unify(t.ytype, tc.ytype)
+        self.unify(t.stype, tc.stype)
+        self.unify(t.rtype, tf.rtype)
+        self.unify(t.ctype, tf.ctype)
+
+        # yield from x should opaquely forward things sent to *the current function* on to *whatever we're yielding from*.
+        # and forwarding things yielded by *whatever we're yielding from* to *whatever we're yielding to*.
+        # stype=stype
+        # ytype=ytype
+        #     ?=?
 
     @infer.on(E.YieldExpression)
     def infer_YieldExpression(self, ast):
@@ -974,8 +1003,6 @@ class TypeChecker:
     def infer_function(self, ast):
         with self.subenv():
             tt, exprs, tD = self.infer_params(ast.params)
-
-            self.print_env()
 
             t = self.fresh()
             eb, tb = self.infer(ast.body)
@@ -1156,6 +1183,9 @@ def unifies(t1, t2, pos):
     if t1 == t2:
         return {}
 
+    if t1 is Any or t2 is Any:
+        return {}
+
     if isinstance(t1, TypeVariable):
         return bind(t1.tvar, t2, pos)
     if isinstance(t2, TypeVariable):
@@ -1264,5 +1294,5 @@ def infer(ast, input_text):
     # s1 = solve_kind({}, i.kind_unifiers)
     print(len(i.unifiers), len(i.kind_unifiers))
     i.update_with_subst(s)
-    i.print_env()
+    #i.print_env()
     return e

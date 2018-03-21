@@ -83,9 +83,6 @@ variable_content_tokens = [
     'binary_int',
 ]
 
-def unzip(iterable):
-    return zip(*iterable)
-
 def nviews(iterable, n, *, with_nones=False):
     iterables = tee(iterable, n)
     for i in range(len(iterables)):
@@ -140,6 +137,9 @@ def trace(show_counter=False, show_types=False):
             return ret
         return inner_wrapper
     return outer_wrapper
+
+def unzip(iterable):
+    return tuple(zip(*iterable))
 
 def overloadmethod(*, use_as_default=False, use_as_modifier=False, use_as_wrapper=False, error_function=None):
     if use_as_modifier + use_as_default + use_as_wrapper > 1:
