@@ -56,6 +56,15 @@ except BaseException:
 except:
   pass
 
+if x:
+  for q in x:
+    while True:
+      try:
+        with q as qw:
+          pass
+      except:
+        pass
+
 #with:
 #  pass
 #

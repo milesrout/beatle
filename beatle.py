@@ -2,18 +2,20 @@
 
 import argparse
 import os
+import pathlib
+import readline
 import sys
 
-from utils import ApeError, ApeSyntaxError, pformat, to_json, to_sexpr
+from utils import ApeError, pformat, to_sexpr
 import parser
 import scanner
 import importer
 import macroexpander
 import typechecker
-import codegenerator
+import evaluator
 
-PHASES = ['SCAN', 'PARSE', 'IMPORTS', 'MACROS', 'TYPES', 'CODEGEN']
-PROMPT = "\U0001F98D> "
+PHASES = ['SCAN', 'PARSE', 'IMPORTS', 'MACROS', 'TYPES', 'EVAL']
+PROMPT = "\U0001F98D "
 
 def add_phase_arguments(parser):
     phases = parser.add_argument_group(title='phases of compilation')
@@ -31,7 +33,7 @@ def add_phase_arguments(parser):
                           help='shorthand for --phase ' + ' '.join(PHASES[:4]))
     ph_mutex.add_argument('--types', action='store_const', dest='phases', const=PHASES[:5],
                           help='shorthand for --phase ' + ' '.join(PHASES[:5]))
-    ph_mutex.add_argument('--gen', action='store_const', dest='phases', const=PHASES[:6],
+    ph_mutex.add_argument('--eval', action='store_const', dest='phases', const=PHASES[:6],
                           help='shorthand for --phase ' + ' '.join(PHASES[:6]))
 
     # The rest of the options *add to* the phases, so any combination can
@@ -58,6 +60,9 @@ def parse_args():
 
     subparsers = parser.add_subparsers(metavar='COMMAND', help='the following commands are built into beatle')
 
+    # Unfortunately you can't set this in the add_subparsers command anymore
+    subparsers.required = True
+
     repl_parser = subparsers.add_parser('repl', aliases=['r'], help='type beatle code directly into a read-eval-print loop')
     add_phase_arguments(repl_parser)
 
@@ -66,12 +71,12 @@ def parse_args():
     com_parser.add_argument('-o', '--output', type=argparse.FileType('w'), default=None)
     add_phase_arguments(com_parser)
 
-    build_parser = subparsers.add_parser('build', aliases=['b'], help='build a file along with all its dependencies')
-    build_parser.add_argument('input', metavar='INPUT_FILE', default=sys.stdin, nargs='?', type=argparse.FileType('r'))
+    # build_parser = subparsers.add_parser('build', aliases=['b'], help='build a file along with all its dependencies')
+    # build_parser.add_argument('input', metavar='INPUT_FILE', default=sys.stdin, nargs='?', type=argparse.FileType('r'))
 
     repl_parser.set_defaults(func=cmd_repl)
     com_parser.set_defaults(func=cmd_compile)
-    build_parser.set_defaults(func=cmd_build)
+    # build_parser.set_defaults(func=cmd_build)
 
     return parser.parse_args()
 
@@ -100,9 +105,9 @@ def validate_phases(args):
               'TYPES phase requires SCAN, PARSE, IMPORTS and MACROS phases')
         return False
 
-    if 'CODEGEN' in args.phases and 'TYPES' not in args.phases:
+    if 'EVAL' in args.phases and 'TYPES' not in args.phases:
         print('Unworkable --phase arguments: '
-              'CODEGEN phase requires SCAN, PARSE, IMPORTS, MACROS and TYPES phases')
+              'EVAL phase requires SCAN, PARSE, IMPORTS, MACROS and TYPES phases')
         return False
 
     return True
@@ -164,14 +169,14 @@ def types(ast, args, input_text):
     return ast
 
 
-def generate(ast, args, input_text):
-    bytecode = codegenerator.generate(ast)
+def evaluate(ast, args, input_text):
+    result = evaluator.evaluate(ast)
 
     if args.verbose >= 1:
         print('bytecode:')
-        print(to_sexpr(bytecode, indent=None if args.verbose == 1 else 4))
+        print(to_sexpr(result, indent=None if args.verbose == 1 else 4))
 
-    return bytecode
+    return result
 
 
 # simple usage:
@@ -191,10 +196,17 @@ def cmd_repl(args):
 
     if 'SCAN' in args.phases:
         regexp = scanner.Regexp.from_files(args.keywords, args.tokens)
+
+    readline.read_init_file(pathlib.Path.home() / '.inputrc')
+
     while True:
-        input_text = input(PROMPT)
         try:
-            process_phases(input_text, args, regexp=regexp, initial_production='single_input')
+            input_text = input(PROMPT)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        try:
+            print(process_phases(input_text, args, regexp=regexp, initial_production='single_input'))
         except ApeError:
             pass
 
@@ -243,11 +255,11 @@ def process_phases(input_text, args, regexp=None, initial_production='file_input
 
         ast = types(ast, args, input_text)
 
-        if 'CODEGEN' not in args.phases:
+        if 'EVAL' not in args.phases:
             return ast
 
-        bytecode = generate(ast, args, input_text)
-        return bytecode
+        result = evaluate(ast, args, input_text)
+        return result
 
     except ApeError as exc:
         print(exc.format_with_context(input_text=input_text, stacktrace=args.stacktrace))

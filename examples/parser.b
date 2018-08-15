@@ -1,8 +1,8 @@
-import contextlib
-import collections
-
-import astnodes as E
-from utils import ApeSyntaxError, compose
+#import contextlib
+#import collections
+#
+#import astnodes as E
+#from utils import ApeSyntaxError, compose
 
 class Parser:
     """A parser for the Beatle programming language"""
@@ -11,7 +11,7 @@ class Parser:
                          'return raise import from').split()
     base_compound_tokens = ('def match'  # ('if while for try with def match '
                             'module signature at').split()
-    ops = 'plus minus asterisk matmul div mod and or xor lsh rsh exp'.split()
+    ops = 'plus minus times matmul div mod and or xor lsh rsh exp'.split()
     augassign_tokens = [f'aug_{op}' for op in ops]
     comparison_op_tokens = 'lt gt eq ge le ne in is'.split()
     bases = 'decimal hexadecimal octal binary'.split()
@@ -98,15 +98,15 @@ class Parser:
             v = self.tokens[i].virtual
             if v is None or v <= V:
                 tok = self.tokens[i]
-                if tok.type == 'id' and tok.string in self.compound_stmt_tokens:
-                    return tok.__class__(type=tok.string, string=tok.string, pos=tok.pos, virtual=tok.virtual)
+                if tok.type_ == 'id' and tok.string in self.compound_stmt_tokens:
+                    return tok.__class__(type_=tok.string, string=tok.string, pos=tok.pos, virtual=tok.virtual)
                 return tok
 
     def consume_token(self):
         token = self.tokens[self.index]
-        if token.type in ['lparen', 'lbrace', 'lbrack']:
+        if token.type_ in ['lparen', 'lbrace', 'lbrack']:
             self.brackets += 1
-        elif token.type in ['rparen', 'rbrace', 'rbrack']:
+        elif token.type_ in ['rparen', 'rbrace', 'rbrack']:
             self.brackets -= 1
         self.index += 1
 
@@ -115,17 +115,17 @@ class Parser:
             self.consume_token()
         self.consume_token()
 
-    def get_token(self, type=None):
+    def get_token(self, type_=None):
         tok = self.tokens[self.index]
-        if type is not None and tok.type != type:
+        if type_ is not None and tok.type_ != type_:
             raise self.Error(
-                tok.pos, f"{self.virtuals} - expected '{type}', got {tok}")
+                tok.pos, f"{self.virtuals} - expected '{type_}', got {tok}")
         self.next_token()
         return tok
 
     def expect_get(self, *expected):
         actual = self.current_token()
-        if actual.type not in expected:
+        if actual.type_ not in expected:
             friendly = '|'.join(expected)
             raise self.Error(
                 actual.pos,
@@ -135,7 +135,7 @@ class Parser:
 
     def expect_get_many(self, *expected):
         result = [self.current_token()]
-        if result[0].type not in expected:
+        if result[0].type_ not in expected:
             friendly = '|'.join(expected)
             raise self.Error(
                 result[0].pos,
@@ -147,7 +147,7 @@ class Parser:
 
     def expect(self, expected):
         actual = self.current_token()
-        if actual.type != expected:
+        if actual.type_ != expected:
             lhs = self.tokens[self.index - 5:self.index]
             rhs = self.tokens[self.index + 1:self.index + 6]
             raise self.Error(
@@ -158,11 +158,11 @@ class Parser:
             self.next_token()
 
     def accept(self, *acceptable):
-        actual = self.current_token().type
+        actual = self.current_token().type_
         return actual in acceptable
 
     def accept_next(self, acceptable):
-        actual = self.current_token().type
+        actual = self.current_token().type_
         if actual == acceptable:
             self.next_token()
         return actual == acceptable
@@ -196,6 +196,7 @@ class Parser:
 
     def inner_stmt(self):
         stmt = self.compound_stmt()
+        print('stmt', stmt, self.current_token())
         if stmt is not None:
             return stmt
         return self.simple_stmt()
@@ -252,7 +253,7 @@ class Parser:
             return self.assert_stmt(pos)
         if self.accept_next('global'):
             return self.global_stmt(pos)
-        if self.accept_next('type'):
+        if self.accept_next('type_'):
             return self.type_defn(pos)
         if self.accept_next('nonlocal'):
             return self.nonlocal_stmt(pos)
@@ -415,12 +416,12 @@ class Parser:
         return E.TypeForallExpression(tvars, self.type_expr(), pos)
 
     def type_atom_expr(self):
-        expr = self.type()
+        expr = self.type_()
         if self.accept_next('lbrack'):
             return E.TypeCallExpression(expr, self.type_call_args())
         return expr
 
-    def type(self):
+    def type_(self):
         pos = self.current_token().pos
         if self.accept_next('lparen'):
             exprs = [self.type_expr()]
@@ -473,7 +474,7 @@ class Parser:
 
     def signature_decl(self):
         pos = self.current_token().pos
-        if self.accept_next('type'):
+        if self.accept_next('type_'):
             return self.type_decl(pos)
         if self.accept_next('law'):
             return self.law_decl(pos)
@@ -511,13 +512,12 @@ class Parser:
                     pos=equal_pos)
             return E.AnnotatedExpression(tlse, annotation, pos=colon_pos)
         if self.accept(*self.augassign_tokens):
-            augtype = self.get_token().type
+            augtype = self.get_token().type_
             pos = self.current_token().pos
             if self.accept_next('yield'):
                 expr = self.yield_expr(pos, 'semicolon', 'newline')
             else:
                 expr = self.testlist()
-                expr = E.TupleLiteral(expr, pos=expr[0].pos)
             return E.AugmentedAssignment(tlse, augtype, expr, pos)
         exprs = [tlse]
         while self.accept_next('equal'):
@@ -557,10 +557,10 @@ class Parser:
         if self.accept_next('macro'):
             return self.macro_def(pos)
         if self.accept_next('parser_directive'):
-            return self.parser_directive(pos)
+            return self.parser_directive_(pos)
         return self.compound_stmt()
 
-    def parser_directive(self, pos):
+    def parser_directive_(self, pos):
         self.linked_control_structures['switch'] = {
             'switch': [[None]],
             'on': [[None]],
@@ -586,6 +586,7 @@ class Parser:
 
             for option in options:
                 for i, param in enumerate(option):
+                    print(option, param, self.current_token())
                     if param == 'TEST':
                         args.append(self.test())
                     elif param == 'EXPR':
@@ -764,9 +765,9 @@ class Parser:
         name = self.dotted_name()
         if self.accept_next('lparen'):
             if self.accept_next('rparen'):
-                args = E.Expressions([])
+                args = []
             else:
-                args = E.Expressions(self.arglist())
+                args = self.arglist()
         else:
             args = None
         self.expect('newline')
@@ -1023,7 +1024,7 @@ class Parser:
                 self.expect('in')
                 exprs.append('not in')
             elif self.accept(*self.comparison_op_tokens):
-                exprs.append(self.get_token().type)
+                exprs.append(self.get_token().type_)
             exprs.append(self.expr())
         if len(exprs) == 1:
             return exprs[0]
@@ -1056,26 +1057,26 @@ class Parser:
     def bitshift_expr(self):
         expr = self.arith_expr()
         if self.accept('bit_lsh', 'bit_rsh', 'bit_asr'):
-            shift_type = self.get_token().type
+            shift_type = self.get_token().type_
             return E.BitShiftExpression(shift_type, expr, self.bitshift_expr())
         return expr
 
     def arith_expr(self):
         term = self.term()
         if self.accept('plus', 'minus'):
-            return E.ArithExpression(self.get_token().type, term, self.arith_expr())
+            return E.ArithExpression(self.get_token().type_, term, self.arith_expr())
         return term
 
     def term(self):
         factor = self.factor()
         if self.accept('asterisk', 'at', 'div', 'mod', 'truediv'):
-            return E.ArithExpression(self.get_token().type, factor, self.term())
+            return E.ArithExpression(self.get_token(), factor, self.term())
         return factor
 
     def factor(self):
         if self.accept('plus', 'minus'):
             op = self.get_token()
-            return E.UnaryExpression(op.type, self.factor(), op.pos)
+            return E.UnaryExpression(op.type_, self.factor(), op.pos)
         if self.accept('tilde'):
             pos = self.get_token().pos
             return E.Lazy(self.factor(), pos=pos)

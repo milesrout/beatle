@@ -247,7 +247,7 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.Decorator)
     def do_visit_Decorator(self, ast):
-        return E.Decorator, (self.visit(ast.name), self.visit_all(ast.args), ast.pos)
+        return E.Decorator, (self.visit(ast.name), self.visit_maybe(ast.args), ast.pos)
 
     @do_visit.on(E.Decorated)
     def do_visit_Decorated(self, ast):
@@ -281,6 +281,7 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.AugmentedAssignment)
     def do_visit_AugmentedAssignment(self, ast):
+        print(ast.assignee, ast.expr)
         return E.AugmentedAssignment, (self.visit(ast.assignee), ast.op, self.visit(ast.expr), ast.pos)
 
     @do_visit.on(E.StarStarExpr)
@@ -445,7 +446,7 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.ReturnStatement)
     def do_visit_ReturnStatement(self, ast):
-        return E.ReturnStatement, (self.visit(ast.expr), ast.pos)
+        return E.ReturnStatement, (self.visit_maybe(ast.expr), ast.pos)
 
     @do_visit.on(E.TypeNameExpression)
     def do_visit_TypeNameExpression(self, ast):

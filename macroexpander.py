@@ -1,4 +1,3 @@
-import contextlib
 from utils import overloadmethod, ApeSyntaxError, to_sexpr
 from astpass import DeepAstPass
 import astnodes as E
@@ -70,13 +69,11 @@ def if_expand(ast):
 def for_expand(ast):
     fors = [c for c in ast.components if c.name == 'for']
     elses = [c for c in ast.components if c.name == 'else']
-    if len(elses) == 0:
-        elses = [None]
     if len(fors) > 1:
         raise ApeSyntaxError('Too many for branches', [f.pos for f in fors])
     if len(elses) > 1:
         raise ApeSyntaxError('Too many else branches', [e.pos for e in elses])
-    return E.ForStatement(fors[0].params[0], fors[0].params[2], fors[0].body, elses[0].body, ast.pos)
+    return E.ForStatement(fors[0].params[0], fors[0].params[2], fors[0].body, elses[0].body if len(elses) == 1 else None, ast.pos)
 
 def while_expand(ast):
     whiles = [(c.params[0], c.body) for c in ast.components if c.name == 'while']
@@ -117,7 +114,6 @@ def try_expand(ast):
     if len(finallys) > 1:
         raise ApeSyntaxError('Too many finally branches', [e.pos for e in finallys])
     return E.TryStatement(trys[0].body, excepts, [e.body for e in elses], [f.body for f in finallys], ast.pos)
-    return ast
 
 # MacroProcessor should look recursively at all the forms it is given
 # If a form is a MacroDefinition form, it should add it to its

@@ -942,7 +942,7 @@ class TypeChecker:
             else:
                 self.unify_all(typ, t.but(Unit), stmt.pos)
             exprs.append(expr)
-        return E.Statements(exprs), t
+        return T.Statements(exprs), t
 
     @infer.on(E.LogicalAndExpressions)
     def infer_LogicalAndExpressions(self, ast):
@@ -1292,7 +1292,7 @@ def infer(ast, input_text):
     e, t = i.infer(ast)
     s = solve({}, i.unifiers)
     # s1 = solve_kind({}, i.kind_unifiers)
-    print(len(i.unifiers), len(i.kind_unifiers))
+    #print(len(i.unifiers), len(i.kind_unifiers))
     i.update_with_subst(s)
     #i.print_env()
     return e

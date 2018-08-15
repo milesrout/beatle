@@ -17,6 +17,9 @@ class Ast:
         self.type = type
         self.pos = pos
 
+    def evaluate(self):
+        return self.node.evaluate(self.type)
+
     def __str__(self):
         return f'({self.node} : {self.type})'
 

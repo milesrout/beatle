@@ -94,18 +94,23 @@ Tuple = namedtuple('Tuple', 'exprs')
 #    def __init__(self, name, pos):
 #        self.name = name
 #        self.pos = pos
-#
-#class Statements(Expression):
-#    #def __new__(self, stmts):
-#    #    if len(stmts) == 1:
-#    #        return stmts[0]
-#    #    return super().__new__(self)
-#    def __init__(self, stmts):
-#        self.stmts = stmts
-#        self.pos = stmts[0].pos
-#    def is_gen(self):
-#        return any(s.is_gen() for s in self.stmts)
-#
+
+class Statements:
+    def __new__(cls, stmts):
+        if len(stmts) == 1:
+            return stmts[0]
+        return super().__new__(cls)
+
+    def __init__(self, stmts):
+        self.stmts = stmts
+        self.pos = stmts[0].pos
+
+    def evaluate(self, type):
+        value = None
+        for stmt in self.stmts:
+            value = stmt.evaluate()
+        return value
+
 class Raise:
     def __init__(self, expr, original, pos):
         self.expr = expr
@@ -387,7 +392,25 @@ class LogicalAnd:
 #        self.right = right
 #        self.pos = left.pos
 
-Arith = namedtuple('Arith', 'op left right')
+class Arith:
+    def __init__(self, op, left, right):
+        self.op = op
+        self.left = left
+        self.right = right
+
+    def evaluate(self, type):
+        return self.operator(self.left.evaluate(), self.right.evaluate())
+
+    def operator(self, l, r):
+        if self.op == 'plus':
+            return l + r
+        if self.op == 'minus':
+            return l - r
+        if self.op == 'asterisk':
+            return l * r
+        raise NotImplementedError()
+
+#Arith = namedtuple('Arith', 'op left right')
 
 Unary = namedtuple('Unary', 'op, expr')
 
@@ -423,6 +446,14 @@ Call = namedtuple('Call', 'f args')
 #        self.pos = expr.pos
 
 Int = namedtuple('Int', 'base value pos')
+class Int:
+    def __init__(self, base, value, pos):
+        self.base = base
+        self.value = value
+        self.pos = pos
+
+    def evaluate(self, type):
+        return int(self.value)
 
 #class IntExpression(Expression):
 #    def __init__(self, token):
@@ -454,7 +485,7 @@ String = namedtuple('String', 'string pos')
 class NoneExpr:
     def __init__(self, pos):
         self.pos = pos
-Bool = namedtuple('Bool', 'value')
+Bool = namedtuple('Bool', 'value pos')
 
 #class TrueExpression(Expression):
 #    def __init__(self, pos):
