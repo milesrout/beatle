@@ -121,7 +121,7 @@ def scan(input_text, args, regexp=None):
 
 
 def parse(tokens, args, input_text, initial_production):
-    ast = parser.input(tokens, input_text, initial_production=initial_production)
+    ast = parser.any_input(tokens, input_text, initial_production=initial_production)
 
     if args.verbose >= 1:
         print('ast:')

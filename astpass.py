@@ -18,6 +18,9 @@ class DeepAstPass(AstPass):
     def visit(self, ast):
         return self.do_visit(ast)
 
+    def visit_maybe_all(self, L):
+        return [self.visit_all(x) if isinstance(x, list) else self.visit(x) for x in L]
+
     def visit_all(self, list):
         return [self.visit(x) for x in list]
 
@@ -107,6 +110,10 @@ class DeepAstPass(AstPass):
     def do_visit_Lazy(self, ast):
         return E.Lazy, (self.visit(ast.expr), ast.pos)
 
+    @do_visit.on(E.Expressions)
+    def do_visit_Expressions(self, ast):
+        return E.Expressions, (self.visit_all(ast.exprs),)
+
     @do_visit.on(E.Statements)
     def do_visit_Statements(self, ast):
         return E.Statements, (self.visit_all(ast.stmts),)
@@ -171,8 +178,8 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.ForStatement)
     def do_visit_ForStatement(self, ast):
-        asn = self.visit_all(ast.assignees)
-        its = self.visit_all(ast.iterables)
+        asn = self.visit(ast.assignees)
+        its = self.visit(ast.iterables)
         b = self.visit(ast.body)
         alt = self.visit_maybe(ast.alt)
         return E.ForStatement, (asn, its, b, alt, ast.pos)
@@ -209,6 +216,15 @@ class DeepAstPass(AstPass):
     def do_visit_NamespaceReferenceDefinition(self, ast):
         return E.NamespaceReferenceDefinition, (self.visit(ast.name), ast.key, ast.pos)
 
+    @do_visit.on(E.ControlStructureExpression)
+    def do_visit_ControlStructureExpression(self, ast):
+        return E.ControlStructureExpression, (self.visit_all(ast.components),)
+
+    @do_visit.on(E.ControlStructureLinkExpression)
+    def do_visit_ControlStructureLinkExpression(self, ast):
+        L = [self.visit_all(p) if isinstance(p, list) else self.visit(p) for p in ast.params]
+        return E.ControlStructureLinkExpression, (ast.name, L, self.visit(ast.body), ast.pos)
+
     @do_visit.on(E.SignatureDefinition)
     def do_visit_SignatureDefinition(self, ast):
         return E.SignatureDefinition, (self.visit(ast.name), self.visit_all(ast.body), ast.pos)
@@ -223,11 +239,11 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.ExceptBlock)
     def do_visit_ExceptBlock(self, ast):
-        return E.ExceptBlock, (self.visit(ast.test), self.visit(ast.name), self.visit(ast.body), ast.pos)
+        return E.ExceptBlock, (self.visit_maybe(ast.test), self.visit_maybe(ast.name), self.visit(ast.body))
 
     @do_visit.on(E.WithItem)
     def do_visit_WithItem(self, ast):
-        return E.WithItem, (self.visit(ast.expr), self.visit(ast.assignee), ast.pos)
+        return E.WithItem, (self.visit(ast.expr), self.visit_maybe(ast.assignee))
 
     @do_visit.on(E.Decorator)
     def do_visit_Decorator(self, ast):
@@ -345,6 +361,10 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.IdExpression)
     def do_visit_IdExpression(self, ast):
+        return ast
+
+    @do_visit.on(E.SymbolExpression)
+    def do_visit_SymbolExpression(self, ast):
         return ast
 
     @do_visit.on(E.StringExpression)

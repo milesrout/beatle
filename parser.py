@@ -1,30 +1,74 @@
 import contextlib
+import collections
 
 import astnodes as E
-from utils import ApeSyntaxError, compose
+from utils import ApeNotImplementedError, ApeSyntaxError, compose
 
 class Parser:
     """A parser for the Beatle programming language"""
 
     small_expr_tokens = ('del pass assert global nonlocal break continue '
                          'return raise import from').split()
-    compound_tokens = ('if while for try with def match '
-                       'module signature at').split()
-    toplevel_tokens = ['macro', *compound_tokens]
+    base_compound_tokens = ('def match'  # ('if while for try with def match '
+                            'module signature at').split()
     ops = 'plus minus times matmul div mod and or xor lsh rsh exp'.split()
     augassign_tokens = [f'aug_{op}' for op in ops]
     comparison_op_tokens = 'lt gt eq ge le ne in is'.split()
     bases = 'decimal hexadecimal octal binary'.split()
     int_tokens = [f'{base}_int' for base in bases]
     float_tokens = 'pointfloat expfloat'.split()
-    string_tokens = [f'{x}_string'
-                     for x in 'fs fd fsss fddd s d sss ddd compound'.split()]
+    string_tokens = [f'{x}_string' for x in 'fs fd fsss fddd s d sss ddd compound'.split()]
+
+    # for each element of this list, if we are parsing a compound statement and we encounter
+    # something that is the *first* element of the list, then we accept follow-on statements
+    # as long as they are an element of the list.
+    # so the first items of these lists must be unique across the whole list, but remaining items
+    # maybe hbe shared (as 'else' is).
+
+    base_linked_control_structures = {
+        'if': {
+            'if': [[None]],
+            'elif': [[None]],
+            'else': []
+        },
+        'while': {
+            'while': [[None]],
+            'else': [],
+        },
+        'for': {
+            'for': [[None, 'in', None]],
+            'else': [],
+        },
+        'try': {
+            'try': [],
+            'except': [[], [None], ['as', None]],
+            'else': [],
+            'finally': [],
+        },
+        'with': {
+            'with': [[None], ['as', None]],
+        }
+    }
+
+    def acceptable_lcs_successors(self, initial):
+        return [k for k in self.linked_control_structures[initial].keys() if k != initial]
+
+    def compound_stmt_start_tokens(self):
+        return list(self.linked_control_structures.keys())
+
+    @property
+    @compose(list)
+    def compound_tokens(self):
+        for lcs in self.linked_control_structures.values():
+            for token in lcs:
+                yield token
 
     def __init__(self, tokens, input_text):
         self.tokens = list(tokens)
         self.index = 0
         self.virtuals = 0
         self.brackets = 0
+        self.linked_control_structures = collections.ChainMap(self.base_linked_control_structures)
 
         class Error(ApeSyntaxError):
             def __init__(self, msg, pos):
@@ -94,26 +138,45 @@ class Parser:
     def expect(self, expected):
         actual = self.current_token()
         if actual.type != expected:
-            lhs = self.tokens[self.index-5:self.index]
-            rhs = self.tokens[self.index+1:self.index+6]
+            lhs = self.tokens[self.index - 5:self.index]
+            rhs = self.tokens[self.index + 1:self.index + 6]
             raise self.Error(
-                 actual.pos,
-                 f"{self.virtuals} - expected '{expected}', got {actual} "
-                 f"...context: {lhs} >>>> {actual} <<<< {rhs}")
+                actual.pos,
+                f"{self.virtuals} - expected '{expected}', got {actual} "
+                f"...context: {lhs} >>>> {actual} <<<< {rhs}")
         else:
             self.next_token()
 
-    def raise_unexpected(self):
-        tok = self.current_token()
-        lhs = self.tokens[self.index-5:self.index]
-        rhs = self.tokens[self.index+1:self.index+6]
-        raise self.Error(
-            tok.pos,
-            f'{self.virtuals} - unexpected token: {tok} '
-            f'...context: {lhs} >>>> {tok} <<<< {rhs}')
+    def expect_symbol(self, expected):
+        actual = self.current_token()
+        if actual.type != 'id' or actual.string != expected:
+            lhs = self.tokens[self.index - 5:self.index]
+            rhs = self.tokens[self.index + 1:self.index + 6]
+            raise self.Error(
+                actual.pos,
+                f"{self.virtuals} - expected '{expected}', got {actual} "
+                f"...context: {lhs} >>>> {actual} <<<< {rhs}")
+        else:
+            self.next_token()
+
+    def expect_symbol_get(self, expected):
+        actual = self.current_token()
+        if actual.type != 'id' or actual.string not in expected:
+            friendly = '|'.join(expected)
+            raise self.Error(
+                actual.pos,
+                f"{self.virtuals} - expected '{friendly}', got {actual}")
+        self.next_token()
+        return actual
 
     def accept(self, *acceptable):
         actual = self.current_token().type
+        return actual in acceptable
+
+    def accept_symbol(self, *acceptable):
+        if not self.accept('id'):
+            return False
+        actual = self.current_token().string
         return actual in acceptable
 
     def accept_next(self, acceptable):
@@ -121,6 +184,15 @@ class Parser:
         if actual == acceptable:
             self.next_token()
         return actual == acceptable
+
+    def raise_unexpected(self):
+        tok = self.current_token()
+        lhs = self.tokens[self.index - 5:self.index]
+        rhs = self.tokens[self.index + 1:self.index + 6]
+        raise self.Error(
+            tok.pos,
+            f'{self.virtuals} - unexpected token: {tok} '
+            f'...context: {lhs} >>>> {tok} <<<< {rhs}')
 
     @compose(E.Statements)
     @compose(list)
@@ -131,8 +203,8 @@ class Parser:
             yield self.stmt()
 
     def single_input(self):
-        if self.accept(*self.toplevel_tokens):
-            stmt = self.toplevel_stmt()
+        stmt = self.toplevel_stmt()
+        if stmt is not None:
             self.expect('newline')
             return stmt
         elif self.accept_next('newline'):
@@ -141,16 +213,16 @@ class Parser:
             return self.simple_stmt()
 
     def inner_stmt(self):
-        if self.current_token().type in self.compound_tokens:
-            return self.compound_stmt()
-        else:
-            return self.simple_stmt()
+        stmt = self.compound_stmt()
+        if stmt is not None:
+            return stmt
+        return self.simple_stmt()
 
     def stmt(self):
-        if self.current_token().type in self.toplevel_tokens:
-            return self.toplevel_stmt()
-        else:
-            return self.simple_stmt()
+        stmt = self.toplevel_stmt()
+        if stmt is not None:
+            return stmt
+        return self.simple_stmt()
 
     @compose(E.Statements)
     @compose(list)
@@ -504,18 +576,38 @@ class Parser:
         return self.compound_stmt()
 
     def compound_stmt(self):
+        if self.accept_symbol(*self.compound_stmt_start_tokens()):
+            return self.linked_control_structure_stmt(self.current_token().string)
+        return self.other_compound_stmt()
+
+    @compose(E.ControlStructureExpression)
+    @compose(list)
+    def linked_control_structure_stmt(self, initial):
+        linking_structure = self.linked_control_structures[self.current_token().string]
+
+        while True:
+            pos = self.current_token().pos
+            name = self.get_token().string
+            options = linking_structure[name]
+            args = []
+
+            i = 0
+            for i, option in enumerate(options):
+                for param in option:
+                    if param is None:
+                        args.append(E.Expressions(self.testlist()))
+                    else:
+                        args.append([E.SymbolExpression(self.expect_symbol_get(param))])
+                if self.accept('colon'):
+                    break
+            self.expect('colon')
+            yield E.ControlStructureLinkExpression(name, args, self.suite(), pos)
+            if not self.accept_symbol(*self.acceptable_lcs_successors(initial)):
+                break
+
+    def other_compound_stmt(self):
         pos = self.current_token().pos
-        if self.accept_next('if'):
-            return self.if_stmt(pos)
-        elif self.accept_next('while'):
-            return self.while_stmt(pos)
-        elif self.accept_next('for'):
-            return self.for_stmt(pos)
-        elif self.accept_next('try'):
-            return self.try_stmt(pos)
-        elif self.accept_next('with'):
-            return self.with_stmt(pos)
-        elif self.accept_next('def'):
+        if self.accept_next('def'):
             return self.func_def(pos)
         elif self.accept_next('signature'):
             return self.signature_def(pos)
@@ -525,7 +617,7 @@ class Parser:
             return self.decorated(pos)
         elif self.accept_next('match'):
             return self.match_stmt(pos)
-        self.raise_unexpected()
+        return None  # self.raise_unexpected()
 
     def match_case(self, pos):
         tlse = self.testlist_star_expr()
@@ -609,7 +701,7 @@ class Parser:
 
     def except_block(self):
         if self.accept_next('colon'):
-            return E.ExceptBlock(body=self.suite())
+            return E.ExceptBlock(test=None, name=None, body=self.suite())
         test = self.test()
         name = None
         if self.accept_next('as'):
@@ -1250,6 +1342,6 @@ def file_input(tokens, input_text):
 def eval_input(tokens, input_text):
     return Parser(tokens, input_text).eval_input()
 
-def input(tokens, input_text, initial_production='file_input'):
+def any_input(tokens, input_text, initial_production='file_input'):
     production = getattr(Parser(tokens, input_text), initial_production)
     return production()

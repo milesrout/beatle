@@ -93,6 +93,9 @@ def nviews(iterable, n, *, with_nones=False):
     else:
         return zip(*reversed(iterables))
 
+def unzip(iterable):
+    return tuple(zip(*iterable))
+
 def tap(f):
     def outer(g):
         @functools.wraps(g)
@@ -137,9 +140,6 @@ def trace(show_counter=False, show_types=False):
             return ret
         return inner_wrapper
     return outer_wrapper
-
-def unzip(iterable):
-    return tuple(zip(*iterable))
 
 def overloadmethod(*, use_as_default=False, use_as_modifier=False, use_as_wrapper=False, error_function=None):
     if use_as_modifier + use_as_default + use_as_wrapper > 1:
@@ -279,7 +279,7 @@ def fmt_sexpr_list_long(o, depth):
     yield fmt_sexpr(o[0], depth + 1)
     for item in o[1:]:
         yield '\n'
-        yield (2 * depth * ' ')
+        yield (depth * ' ')
         yield fmt_sexpr(item, depth + 1)
     yield ')'
 

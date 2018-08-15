@@ -93,7 +93,22 @@ class Lazy(Expression):
         self.expr = expr
         self.pos = pos
 
+class Expressions(Expression):
+    def __new__(cls, exprs):
+        if len(exprs) == 1:
+            return exprs[0]
+        return super().__new__(cls)
+
+    def __init__(self, exprs):
+        self.exprs = exprs
+        self.pos = exprs[0].pos
+
 class Statements(Expression):
+    def __new__(cls, stmts):
+        if len(stmts) == 1:
+            return stmts[0]
+        return super().__new__(cls)
+
     def __init__(self, stmts):
         self.stmts = stmts
         self.pos = stmts[0].pos
@@ -155,6 +170,18 @@ class ElifBranch(Expression):
 
 class ElseBranch(Expression):
     def __init__(self, body, pos):
+        self.body = body
+        self.pos = pos
+
+class ControlStructureExpression(Expression):
+    def __init__(self, components):
+        self.components = components
+        self.pos = components[0].pos
+
+class ControlStructureLinkExpression(Expression):
+    def __init__(self, name, params, body, pos):
+        self.name = name
+        self.params = params
         self.body = body
         self.pos = pos
 
@@ -459,6 +486,11 @@ class StringExpression(Expression):
         'Unparsed is a list of strings'
         self.unparsed = unparsed
         self.pos = unparsed[0].pos
+
+class SymbolExpression(Expression):
+    def __init__(self, token):
+        self.value = token.string
+        self.pos = token.pos
 
 class EllipsisExpression(Expression):
     def __init__(self, pos):
