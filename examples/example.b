@@ -32,7 +32,14 @@ if a != 0:
     print("world")
 print("okay")
 
-
+if x:
+    if y:
+        if (a == b
+          or
+        c
+      ==
+   d):
+          pass
 if a == 0 or b == 1:
     a = (if b == 0:
              "hello"

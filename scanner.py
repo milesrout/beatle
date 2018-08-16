@@ -64,53 +64,37 @@ class Scanner:
         line = []
         pos = -1
         indent = 0
+        saved_backslash = None
+        indent_fixed = False
         for token in tokens:
-            if len(line) == 0 and pos == -1:
+            if pos is None:
                 pos = token.pos
+            if saved_backslash is not None:
+                if is_newline(token):
+                    saved_backslash = None
+                    indent_fixed = True
+                    pos = None
+                    continue
+                line.append(saved_backslash)
+                saved_backslash = None
+
             if is_newline(token):
-                yield IndentLine(indent=indent, pos=pos, endpos=token.pos, content=line)
-                pos = -1
+                if not all(is_space(tok) for tok in line):
+                    yield IndentLine(indent=indent, pos=pos, endpos=token.pos, content=line)
+                indent_fixed = False
+                pos = None
                 line = []
                 indent = 0
+            elif token.type == 'backslash':
+                saved_backslash = token
             elif is_space(token):
-                if len(line) == 0:
+                if len(line) == 0 and not indent_fixed:
                     indent += count_indent(token)
             else:
                 line.append(token)
         if len(line) != 0:
             yield IndentLine(indent=indent, pos=pos, endpos=line[-1].pos, content=line)
-        p = len(self.input_text) - 1
-        yield IndentLine(indent=0, pos=p, endpos=p, content=[])
-
-    def remove_blank_lines(self, indented_lines):
-        for line in indented_lines:
-            if not all(is_space(tok) for tok in line.content):
-                yield line
-
-    def join_continuation_backslashes(self, lines):
-        """Merge explicit continuation lines"""
-        initial = None
-        group = []
-        endpos = None
-        for line in lines:
-            if len(line.content) != 0 and line.content[-1].type == 'backslash':
-                group.extend(line.content)
-                endpos = line.endpos
-                group.pop()
-                initial = initial or line
-            else:
-                if initial is None:
-                    yield line
-                else:
-                    group.extend(line.content)
-                    yield IndentLine(indent=initial.indent, pos=initial.pos, endpos=endpos, content=group)
-                    initial = None
-                    group = []
-        if len(group) != 0:
-            raise self.Error('cannot end with backslash-continuation line')
-
-    def add_blank_line(self, lines):
-        return itertools.chain(lines, [IndentLine(indent=0, pos=len(self.input_text), endpos=len(self.input_text), content=[])])
+        yield IndentLine(indent=0, pos=len(self.input_text), endpos=len(self.input_text), content=[])
 
     def parse_indentation(self, lines):
         stack = [0]
@@ -126,7 +110,7 @@ class Scanner:
                     amount = min(total - line.indent, indent[-1])
                     if amount != 0:
                         yield self.Token('dedent', ' ' * amount, line.pos, virtual=len(stack) - 1)
-                        indent[-1] -= total - line.indent
+                        indent[-1] -= amount
             for token in line.content:
                 if token.type in ['lbrack', 'lbrace', 'lparen']:
                     if stack[-1] is None:
@@ -257,9 +241,6 @@ class Scanner:
         # might indicate.
         lexing_steps = [
             self.split_into_physical_lines,
-            self.remove_blank_lines,
-            self.join_continuation_backslashes,
-            self.add_blank_line,
             self.parse_indentation,
             self.split_dedent_tokens,
             self.add_eof_token,
