@@ -2,6 +2,9 @@ x = 1
 y = 2
 z = 3
 
+do:
+  pass
+
 if x:
   pass
 elif y:

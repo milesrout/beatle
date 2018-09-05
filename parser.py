@@ -24,14 +24,16 @@ class Parser:
     # as long as they are an element of the list.
     # so the first items of these lists must be unique across the whole list, but remaining items
     # maybe hbe shared (as 'else' is).
+    # they also aren't lists, obviously, they're dictionaries, which means that
+    # they aren't really ordered. order should be enforced later.
 
     base_linked_control_structures = {
         'do': {
             'do': [],
         },
-        'class': {
-            'class': [['EXPR']],
-        },
+        #'class': {
+        #    'class': [['EXPR']],
+        #},
         'if': {
             'if': [['TEST']],
             'elif': [['TEST']],
@@ -60,7 +62,8 @@ class Parser:
         return [k for k in self.linked_control_structures[initial].keys() if k != initial]
 
     def calculate_compound_stmt_tokens(self):
-        self.compound_stmt_tokens = set.union(*(set.union({x for opt in L.values() for y in opt for x in y if x.islower()}, set(L.keys())) for L in self.linked_control_structures.values()))
+        self.compound_stmt_tokens = set.union(*(set.union({x for opt in L.values() for y in opt for x in y if x.islower()}, set(L.keys()))
+                                                for L in self.linked_control_structures.values()))
 
     @property
     @compose(list)
@@ -588,6 +591,8 @@ class Parser:
                 for i, param in enumerate(option):
                     if param == 'TEST':
                         args.append(self.test())
+                    elif param == 'NAME':
+                        args.append(self.name())
                     elif param == 'EXPR':
                         args.append(self.expr())
                     elif param == 'EXPRLIST':
@@ -619,7 +624,8 @@ class Parser:
             return self.decorated(pos)
         elif self.accept_next('match'):
             return self.match_stmt(pos)
-        return None  # self.raise_unexpected()
+        return self.expr_stmt()
+        self.raise_unexpected()
 
     def match_case(self, pos):
         tlse = self.testlist_star_expr()
@@ -641,96 +647,6 @@ class Parser:
         self.expect('colon')
         cases = self.match_cases()
         return E.MatchStatement(expr, cases, pos)
-
-    def if_stmt(self, pos):
-        def cond_suite():
-            cond = self.test()
-            self.expect('colon')
-            suite = self.suite()
-            return (cond, suite)
-        if_branch = E.IfBranch(*cond_suite(), pos)
-        elif_branches = []
-        else_branch = None
-        while self.accept('elif'):
-            pos = self.get_token().pos
-            elif_branches.append(E.ElifBranch(*cond_suite(), pos))
-        if self.accept('else'):
-            pos = self.get_token().pos
-            self.expect('colon')
-            else_branch = E.ElseBranch(self.suite(), pos)
-        return E.IfElifElseStatement(if_branch, elif_branches, else_branch, pos)
-
-    def while_stmt(self, pos):
-        cond = self.test()
-        self.expect('colon')
-        suite = self.suite()
-        if self.accept_next('else'):
-            self.expect('colon')
-            alt = self.suite()
-            return E.WhileStatement(cond, suite, alt, pos)
-        return E.WhileStatement(cond, suite, alt=None, pos=pos)
-
-    def for_stmt(self, pos):
-        assignees = self.exprlist('in')
-        self.expect('in')
-        iterables = self.testlist()
-        self.expect('colon')
-        body = self.suite()
-        if self.accept_next('else'):
-            self.expect('colon')
-            alt = self.suite()
-            return E.ForStatement(assignees, iterables, body, alt, pos)
-        return E.ForStatement(assignees, iterables, body, alt=None, pos=pos)
-
-    def try_stmt(self, pos):
-        self.expect('colon')
-        try_body = self.suite()
-        excepts = []
-        elses = []
-        finallies = []
-        while self.accept('except', 'else', 'finally'):
-            if self.accept_next('except'):
-                excepts.append(self.except_block())
-            elif self.accept_next('else'):
-                elses.append(self.else_block())
-            elif self.accept_next('finally'):
-                finallies.append(self.finally_block())
-        return E.TryStatement(body=try_body,
-                              excepts=excepts,
-                              elses=elses,
-                              finallies=finallies,
-                              pos=pos)
-
-    def except_block(self):
-        if self.accept_next('colon'):
-            return E.ExceptBlock(test=None, name=None, body=self.suite())
-        test = self.test()
-        name = None
-        if self.accept_next('as'):
-            name = self.name()
-        self.expect('colon')
-        return E.ExceptBlock(test=test, name=name, body=self.suite())
-
-    def else_block(self):
-        self.expect('colon')
-        return self.suite()
-
-    def finally_block(self):
-        self.expect('colon')
-        return self.suite()
-
-    def with_stmt(self, pos):
-        items = [self.with_item()]
-        while self.accept_next('comma'):
-            items.append(self.with_item())
-        self.expect('colon')
-        return E.WithStatement(items, self.suite(), pos)
-
-    def with_item(self):
-        expr = self.test()
-        if self.accept_next('as'):
-            return E.WithItem(expr=expr, assignee=self.expr())
-        return E.WithItem(expr=expr, assignee=None)
 
     def signature_suite(self):
         if self.accept_next('newline'):
