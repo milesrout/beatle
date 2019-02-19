@@ -1,6 +1,6 @@
 from utils import overloadmethod, ApeSyntaxError, to_sexpr
 from astpass import DeepAstPass
-import astnodes as E
+import cstnodes as E
 
 # MacroExpander should look recursively at all forms it is given.
 # If a form is a CallExpression where the CAR of the form is the name of a

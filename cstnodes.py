@@ -119,13 +119,6 @@ class RaiseStatement(Expression):
         self.original = original
         self.pos = pos
 
-    def is_gen(self):
-        if self.expr is not None:
-            if self.original is not None:
-                return self.expr.is_gen() or self.original.is_gen()
-            return self.expr.is_gen()
-        return None
-
 class YieldExpression(Expression):
     def __init__(self, expr, pos):
         self.expr = expr
@@ -242,18 +235,12 @@ class FunctionDefinition(Expression):
         self.return_annotation = return_annotation
         self.pos = pos
 
-    def is_gen(self):
-        return any(p.is_gen() for p in self.params)
-
 class FunctionExpression(Expression):
     def __init__(self, params, body, return_annotation, pos):
         self.params = params
         self.body = body
         self.return_annotation = return_annotation
         self.pos = pos
-
-    def is_gen(self):
-        return any(p.is_gen() for p in self.params)
 
 class LambdaExpression(Expression):
     def __init__(self, params, body, pos):
@@ -338,9 +325,6 @@ class ChainedAssignment(Expression):
     def __init__(self, assignees):
         self.assignees = assignees
         self.pos = assignees[0].pos
-
-    def is_gen(self):
-        return any(s.is_gen() for s in self.assignees)
 
 class AnnotatedAssignment(Expression):
     def __init__(self, assignee, expr, annotation, pos):
@@ -657,9 +641,6 @@ class Param(Expression):
             return f'{self.name}={self.default}'
         else:
             return f'{self.name}: {self.annotation} = {self.default}'
-
-    def is_gen(self):
-        return self.default is not None and self.default.is_gen()
 
 class EndOfPosParams(Expression):
     def __init__(self, pos):

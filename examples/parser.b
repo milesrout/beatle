@@ -1,7 +1,7 @@
 #import contextlib
 #import collections
 #
-#import astnodes as E
+#import cstnodes as E
 #from utils import ApeSyntaxError, compose
 
 class Parser:

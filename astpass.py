@@ -1,5 +1,5 @@
 from utils import overloadmethod
-import astnodes as E
+import cstnodes as E
 
 class AstPass:
     """A compiler pass over the abstract syntax tree"""

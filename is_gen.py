@@ -1,6 +1,6 @@
 from utils import overloadmethod, ApeInternalError
 from astpass import DeepAstPass
-import astnodes as E
+import cstnodes as E
 
 class Sentinel:
     def __init__(self, value):
