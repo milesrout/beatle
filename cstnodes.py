@@ -73,6 +73,12 @@ class TupleLiteral(Expression):
         self.exprs = exprs
         self.pos = pos
 
+class QuoteExpression(Expression):
+    def __init__(self, cls, args, pos):
+        self.cls = cls
+        self.args = args
+        self.pos = pos
+
 class Quasiquote(Expression):
     def __init__(self, expr, pos):
         self.expr = expr
@@ -175,6 +181,11 @@ class ControlStructureLinkExpression(Expression):
     def __init__(self, name, params, body, pos):
         self.name = name
         self.params = params
+        self.body = body
+        self.pos = pos
+
+class DoStatement(Expression):
+    def __init__(self, body, pos):
         self.body = body
         self.pos = pos
 
@@ -419,6 +430,30 @@ class PowerExpression(Expression):
         self.exponent = exponent
         self.pos = expr.pos
 
+class AttrTrailer(Expression):
+    def __init__(self, name, pos):
+        self.name = name
+        self.pos = pos
+
+    def fix(self, atom):
+        return AttrExpression(atom, self.name, self.pos)
+
+class CallTrailer(Expression):
+    def __init__(self, args, pos):
+        self.args = args
+        self.pos = pos
+
+    def fix(self, atom):
+        return CallExpression(atom, self.args, self.pos)
+
+class IndexTrailer(Expression):
+    def __init__(self, indices, pos):
+        self.indices = indices
+        self.pos = pos
+
+    def fix(self, atom):
+        return IndexExpression(atom, self.indices, self.pos)
+
 class AtomExpression(Expression):
     def __new__(self, atom, trailers):
         for trailer in trailers:
@@ -491,30 +526,6 @@ class TrueExpression(Expression):
 class FalseExpression(Expression):
     def __init__(self, pos):
         self.pos = pos
-
-class AttrTrailer(Expression):
-    def __init__(self, name, pos):
-        self.name = name
-        self.pos = pos
-
-    def fix(self, atom):
-        return AttrExpression(atom, self.name, self.pos)
-
-class CallTrailer(Expression):
-    def __init__(self, args, pos):
-        self.args = args
-        self.pos = pos
-
-    def fix(self, atom):
-        return CallExpression(atom, self.args, self.pos)
-
-class IndexTrailer(Expression):
-    def __init__(self, indices, pos):
-        self.indices = indices
-        self.pos = pos
-
-    def fix(self, atom):
-        return IndexExpression(atom, self.indices, self.pos)
 
 class Index(Expression):
     def __init__(self, idx):
@@ -592,6 +603,11 @@ class TypeForallExpression(Expression):
         self.expr = expr
         self.pos = pos
 
+class TypeMaybeExpression(Expression):
+    def __init__(self, t, pos):
+        self.t = t
+        self.pos = pos
+
 class TypeCallExpression(Expression):
     def __init__(self, atom, args):
         self.atom = atom
@@ -634,7 +650,7 @@ class Param(Expression):
 
     def __str__(self):
         if self.default is None and self.annotation is None:
-            return self.name
+            return str(self.name)
         elif self.default is None:
             return f'{self.name}: {self.annotation}'
         elif self.annotation is None:

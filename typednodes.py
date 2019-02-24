@@ -37,63 +37,48 @@ class ListComp:
         self.rest = rest
 
 class GenExpr:
-    def __init__(self, expr, rest, pos):
+    def __init__(self, expr, rest):
         self.expr = expr
         self.rest = rest
-        self.pos = pos
 
 class SetLit:
-    def __init__(self, exprs, pos):
+    def __init__(self, exprs):
         self.exprs = exprs
-        self.pos = pos
 
 class DictLit:
-    def __init__(self, exprs, pos):
+    def __init__(self, exprs):
         self.exprs = exprs
-        self.pos = pos
 
 class DictKV:
-    def __init__(self, key_expr, value_expr, pos):
+    def __init__(self, key_expr, value_expr):
         self.key_expr = key_expr
         self.value_expr = value_expr
-        self.pos = pos
 
 class ListLit:
-    def __init__(self, exprs, pos):
+    def __init__(self, exprs):
         self.exprs = exprs
-        self.pos = pos
 
 Tuple = namedtuple('Tuple', 'exprs')
 
-#class Quasiquote(Expression):
-#    def __init__(self, expr, pos):
-#        self.expr = expr
-#        self.pos = pos
-#
-#class Unquote(Expression):
-#    def __init__(self, expr, pos):
-#        self.expr = expr
-#        self.pos = pos
-#
-#class UnquoteSplice(Expression):
-#    def __init__(self, expr, pos):
-#        self.expr = expr
-#        self.pos = pos
-#
+Quote = namedtuple('Quote', 'cls, args')
+
+Quasiquote = namedtuple('Quasiquote', 'expr')
+
+Unquote = namedtuple('Unquote', 'expr')
+
+UnquoteSplice = namedtuple('UnquoteSplice', 'expr')
+
 #class Lazy(Expression):
-#    def __init__(self, expr, pos):
+#    def __init__(self, expr):
 #        self.expr = expr
-#        self.pos = pos
 #
 #class StarParam(Expression):
-#    def __init__(self, name, pos):
+#    def __init__(self, name):
 #        self.name = name
-#        self.pos = pos
 #
 #class StarStarKwparam(Expression):
-#    def __init__(self, name, pos):
+#    def __init__(self, name):
 #        self.name = name
-#        self.pos = pos
 
 class Statements:
     def __new__(cls, stmts):
@@ -105,17 +90,10 @@ class Statements:
         self.stmts = stmts
         self.pos = stmts[0].pos
 
-    def evaluate(self, type):
-        value = None
-        for stmt in self.stmts:
-            value = stmt.evaluate()
-        return value
-
 class Raise:
-    def __init__(self, expr, original, pos):
+    def __init__(self, expr, original):
         self.expr = expr
         self.original = original
-        self.pos = pos
 #    def is_gen(self):
 #        if self.expr is not None:
 #            if self.original is not None:
@@ -126,146 +104,108 @@ class Raise:
 Yield = namedtuple('Yield', 'expr')
 
 #class DelStatement(Expression):
-#    def __init__(self, exprs, pos):
+#    def __init__(self, exprs):
 #        self.exprs = exprs
-#        self.pos = pos
 #    def is_gen(self):
 #        return any(e.is_gen() for e in self.exprs)
 #
 #class AssertStatement(Expression):
-#    def __init__(self, exprs, pos):
+#    def __init__(self, exprs):
 #        self.exprs = exprs
-#        self.pos = pos
 #    def is_gen(self):
 #        return any(e.is_gen() for e in self.exprs)
 #
 #class GlobalStatement(Expression):
-#    def __init__(self, names, pos):
+#    def __init__(self, names):
 #        self.names = names
-#        self.pos = pos
 #
 #class NonlocalStatement(Expression):
-#    def __init__(self, names, pos):
+#    def __init__(self, names):
 #        self.names = names
-#        self.pos = pos
-#
+
 class IfBranch:
-    def __init__(self, cond, body, pos):
+    def __init__(self, cond, body):
         self.cond = cond
         self.body = body
-        self.pos = pos
 
 class ElifBranch:
-    def __init__(self, cond, body, pos):
+    def __init__(self, cond, body):
         self.cond = cond
         self.body = body
-        self.pos = pos
 
 class ElseBranch:
-    def __init__(self, body, pos):
+    def __init__(self, body):
         self.body = body
-        self.pos = pos
 
 class IfElifElse:
-    def __init__(self, if_branch, elif_branches, else_branch, pos):
+    def __init__(self, if_branch, elif_branches, else_branch):
         self.if_branch = if_branch
         self.elif_branches = elif_branches
         self.else_branch = else_branch
-        self.pos = pos
 
 #class MatchStatement(Expression):
-#    def __init__(self, expr, cases, pos):
+#    def __init__(self, expr, cases):
 #        self.expr = expr
 #        self.cases = cases
-#        self.pos = pos
 #
 #class MatchCase(Expression):
-#    def __init__(self, pattern, body, pos):
+#    def __init__(self, pattern, body):
 #        self.pattern = pattern
 #        self.body = body
-#        self.pos = pos
 #
 #class WhileStatement(Expression):
-#    def __init__(self, cond, body, alt, pos):
+#    def __init__(self, cond, body, alt):
 #        self.cond = cond
 #        self.body = body
 #        self.alt = alt
-#        self.pos = pos
 #
 #class ForStatement(Expression):
-#    def __init__(self, assignees, iterables, body, alt, pos):
+#    def __init__(self, assignees, iterables, body, alt):
 #        self.assignees = assignees
 #        self.iterables = iterables
 #        self.body = body
 #        self.alt = alt
-#        self.pos = pos
 #
 #class TryStatement(Expression):
-#    def __init__(self, body, excepts, elses, finallies, pos):
+#    def __init__(self, body, excepts, elses, finallies):
 #        self.body = body
 #        self.excepts = excepts
 #        self.elses = elses
 #        self.finallies = finallies
-#        self.pos = pos
 #
 #class MacroDefinition(Expression):
-#    def __init__(self, name, params, body, return_annotation, pos):
+#    def __init__(self, name, params, body, return_annotation):
 #        self.name = name
 #        self.params = params
 #        self.body = body
 #        self.return_annotation = return_annotation
-#        self.pos = pos
 #
-class FunctionDefinition:
-    def __init__(self, name, params, body, pos):
-        self.name = name
-        self.params = params
-        self.body = body
-        self.pos = pos
 
-class Function:
-    def __init__(self, params, body, pos):
-        self.params = params
-        self.body = body
-        self.pos = pos
+FunctionDefinition = namedtuple('FunctionDefinition', 'name params defaults body')
+
+Function = namedtuple('Function', 'params defaults body')
 
 #class LambdaExpression(Expression):
-#    def __init__(self, args, body, pos):
+#    def __init__(self, args, body):
 #        self.args = args
 #        self.body = body
-#        self.pos = pos
-#
-class NamespaceDefn:
-    def __init__(self, name, key, expr, pos):
-        self.name = name
-        self.key = key
-        self.expr = expr
-        self.pos = pos
 
-class NamespaceRefDefn:
-    def __init__(self, name, key, pos):
-        self.name = name
-        self.key = key
-        self.pos = pos
+NamespaceDefn = namedtuple('NamespaceDefn', 'name, key, expr')
 
-class SignatureDefn:
-    def __init__(self, name, body, pos):
-        self.name = name
-        self.body = body
-        self.pos = pos
+NamespaceRefDefn = namedtuple('NamespaceRefDefn', 'name, key')
+
+SignatureDefn = namedtuple('SignatureDefn', 'name, body')
 
 #class ModuleDefinition(Expression):
-#    def __init__(self, name, bases, body, pos):
+#    def __init__(self, name, bases, body):
 #        self.name = name
 #        self.bases = bases
 #        self.body = body
-#        self.pos = pos
 #
 #class WithStatement(Expression):
-#    def __init__(self, items, body, pos):
+#    def __init__(self, items, body):
 #        self.items = items
 #        self.body = body
-#        self.pos = pos
 #
 #class ExceptBlock(Expression):
 #    def __init__(self, test, name, body):
@@ -284,10 +224,9 @@ class SignatureDefn:
 #        self.args = args
 #
 #class Decorated(Expression):
-#    def __init__(self, decorators, defn, pos):
+#    def __init__(self, decorators, defn):
 #        self.decorators = decorators
 #        self.defn = defn
-#        self.pos = pos
 #
 #class ImportName(Expression):
 #    def __init__(self, name, alias):
@@ -295,21 +234,16 @@ class SignatureDefn:
 #        self.alias = alias
 #
 #class ImportStatement(Expression):
-#    def __init__(self, names, pos):
+#    def __init__(self, names):
 #        self.names = names
-#        self.pos = pos
 #
 #class FromImportStatement(Expression):
-#    def __init__(self, name, dots, what, pos):
+#    def __init__(self, name, dots, what):
 #        self.name = name
 #        self.dots = dots
 #        self.what = what
-#        self.pos = pos
 
-class Assignment:
-    def __init__(self, targets, expr):
-        self.targets = targets
-        self.expr = expr
+Assignment = namedtuple('Assignment', 'targets expr')
 
 #class ChainedAssignment(Expression):
 #    def __init__(self, assignees):
@@ -317,59 +251,30 @@ class Assignment:
 #        self.pos = assignees[0].pos
 #    def is_gen(self):
 #        return any(s.is_gen() for s in self.assignees)
-#
-class VariableDeclaration:
-    def __init__(self, assignee, expr, annotation, pos):
-        self.assignee = assignee
-        self.expr = expr
-        self.annotation = annotation
-        self.pos = pos
+VariableDeclaration = namedtuple('VariableDeclaration', 'assignee, expr, annotation')
 
 #class AnnotatedExpression(Expression):
-#    def __init__(self, expr, annotation, pos):
+#    def __init__(self, expr, annotation):
 #        self.expr = expr
 #        self.annotation = annotation
-#        self.pos = pos
 #
 #class AugmentedAssignment(Expression):
-#    def __init__(self, assignee, op, expr, pos):
+#    def __init__(self, assignee, op, expr):
 #        self.assignee = assignee
 #        self.op = op
 #        self.expr = expr
-#        self.pos = pos
-#
-class StarStar:
-    def __init__(self, expr, pos):
-        self.expr = expr
-        self.pos = pos
+StarStar = namedtuple('StarStar', 'expr')
 
-class Star:
-    def __init__(self, expr, pos):
-        self.expr = expr
-        self.pos = pos
+Star = namedtuple('Star', 'expr')
 
-class IfElse:
-    def __init__(self, expr, cond, alt):
-        self.expr = expr
-        self.cond = cond
-        self.alt = alt
-        self.pos = expr.pos
+IfElse = namedtuple('IfElse', 'expr, cond, alt')
 
-class LogicalOr:
-    def __init__(self, exprs):
-        self.exprs = exprs
-        self.pos = exprs[0].pos
+LogicalOr = namedtuple('LogicalOr', 'exprs')
 
-class LogicalAnd:
-    def __init__(self, exprs):
-        self.exprs = exprs
-        self.pos = exprs[0].pos
+LogicalAnd = namedtuple('LogicalAnd', 'exprs')
 
-#class LogicalNotExpression(Expression):
-#    def __init__(self, expr):
-#        self.expr = expr
-#        self.pos = expr.pos
-#
+LogicalNot = namedtuple('LogicalNot', 'expr')
+
 #class BitOrExpression(Expression):
 #    def __init__(self, exprs):
 #        self.exprs = exprs
@@ -391,24 +296,7 @@ class LogicalAnd:
 #        self.left = left
 #        self.right = right
 #        self.pos = left.pos
-
-class Arith:
-    def __init__(self, op, left, right):
-        self.op = op
-        self.left = left
-        self.right = right
-
-    def evaluate(self, type):
-        return self.operator(self.left.evaluate(), self.right.evaluate())
-
-    def operator(self, l, r):
-        if self.op == 'plus':
-            return l + r
-        if self.op == 'minus':
-            return l - r
-        if self.op == 'asterisk':
-            return l * r
-        raise NotImplementedError()
+Arith = namedtuple('Arith', 'op, left, right')
 
 #Arith = namedtuple('Arith', 'op left right')
 
@@ -429,31 +317,21 @@ Unary = namedtuple('Unary', 'op, expr')
 Call = namedtuple('Call', 'f args')
 
 #class IndexExpression(Expression):
-#    def __init__(self, atom, indices, pos):
+#    def __init__(self, atom, indices):
 #        self.atom = atom
 #        self.indices = indices
-#        self.pos = pos
 #
 #class AttrExpression(Expression):
-#    def __init__(self, atom, name, pos):
+#    def __init__(self, atom, name):
 #        self.atom = atom
 #        self.name = name
-#        self.pos = pos
 #
 #class AwaitExpression(Expression):
 #    def __init__(self, expr):
 #        self.expr = expr
 #        self.pos = expr.pos
 
-Int = namedtuple('Int', 'base value pos')
-class Int:
-    def __init__(self, base, value, pos):
-        self.base = base
-        self.value = value
-        self.pos = pos
-
-    def evaluate(self, type):
-        return int(self.value)
+Int = namedtuple('Int', 'base value')
 
 #class IntExpression(Expression):
 #    def __init__(self, token):
@@ -464,11 +342,11 @@ class Int:
 #        return False
 #
 
-Float = namedtuple('Float', 'format value pos')
+Float = namedtuple('Float', 'format value')
 
-Id = namedtuple('Id', 'name pos')
+Id = namedtuple('Id', 'name')
 
-String = namedtuple('String', 'string pos')
+String = namedtuple('String', 'string')
 
 #class StringExpression(Expression):
 #    def __init__(self, unparsed):
@@ -479,40 +357,33 @@ String = namedtuple('String', 'string pos')
 #        return False
 #
 #class EllipsisExpression(Expression):
-#    def __init__(self, pos):
-#        self.pos = pos
+#    def __init__(self):
 
-class NoneExpr:
-    def __init__(self, pos):
-        self.pos = pos
-Bool = namedtuple('Bool', 'value pos')
+NoneExpr = namedtuple('NoneExpr', '')
+
+Bool = namedtuple('Bool', 'value')
 
 #class TrueExpression(Expression):
-#    def __init__(self, pos):
-#        self.pos = pos
+#    def __init__(self):
 #
 #class FalseExpression(Expression):
-#    def __init__(self, pos):
-#        self.pos = pos
+#    def __init__(self):
 #
 #class AttrTrailer(Expression):
-#    def __init__(self, name, pos):
+#    def __init__(self, name):
 #        self.name = name
-#        self.pos = pos
 #    def fix(self, atom):
 #        return AttrExpression(atom, self.name, self.pos)
 #
 #class CallTrailer(Expression):
-#    def __init__(self, args, pos):
+#    def __init__(self, args):
 #        self.args = args
-#        self.pos = pos
 #    def fix(self, atom):
 #        return CallExpression(atom, self.args, self.pos)
 #
 #class IndexTrailer(Expression):
-#    def __init__(self, indices, pos):
+#    def __init__(self, indices):
 #        self.indices = indices
-#        self.pos = pos
 #    def fix(self, atom):
 #        return IndexExpression(atom, self.indices, self.pos)
 #
@@ -554,25 +425,20 @@ Bool = namedtuple('Bool', 'value pos')
 #        self.test = test
 #
 #class EndOfPosParams(Expression):
-#    def __init__(self, pos):
-#        self.pos = pos
+#    def __init__(self):
 #
 class Pass:
-    def __init__(self, pos):
-        self.pos = pos
+    pass
 
 #class BreakStatement(Expression):
-#    def __init__(self, pos):
-#        self.pos = pos
+#    def __init__(self):
 #
 #class ContinueStatement(Expression):
-#    def __init__(self, pos):
-#        self.pos = pos
+#    def __init__(self):
 
 class Return:
-    def __init__(self, expr, pos):
+    def __init__(self, expr):
         self.expr = expr
-        self.pos = pos
 
 #class TypeNameExpression(Expression):
 #    def __init__(self, name):
@@ -586,15 +452,13 @@ class Return:
 #        self.pos = t1.pos
 #
 #class TypeTupleExpression(Expression):
-#    def __init__(self, exprs, pos):
+#    def __init__(self, exprs):
 #        self.exprs = exprs
-#        self.pos = pos
 #
 #class TypeForallExpression(Expression):
-#    def __init__(self, tvars, expr, pos):
+#    def __init__(self, tvars, expr):
 #        self.tvars = tvars
 #        self.expr = expr
-#        self.pos = pos
 #
 #class TypeCallExpression(Expression):
 #    def __init__(self, atom, args):
@@ -603,22 +467,19 @@ class Return:
 #        self.pos = atom.pos
 #
 #class NameDeclaration(Expression):
-#    def __init__(self, name, annotation, pos):
+#    def __init__(self, name, annotation):
 #        self.name = name
 #        self.annotation = annotation
-#        self.pos = pos
 #
 #class TypeDeclaration(Expression):
-#    def __init__(self, name, args, pos):
+#    def __init__(self, name, args):
 #        self.name = name
 #        self.args = args
-#        self.pos = pos
 #
 #class LawDeclaration(Expression):
-#    def __init__(self, names, expr, pos):
+#    def __init__(self, names, expr):
 #        self.names = names
 #        self.expr = expr
-#        self.pos = pos
 #
 #class Param(Expression):
 #    def __init__(self, name, annotation, default):
@@ -642,16 +503,15 @@ class Return:
 Comparison = namedtuple('Comparison', 'op a b')
 
 #class Comparison(Expression):
-#    def __init__(self, op, a, b, pos):
+#    def __init__(self, op, a, b):
 #        self.op = op
 #        self.a = a
 #        self.b = b
-#        self.pos = pos
 #    def is_gen(self):
 #        return self.a.is_gen() or self.b.is_gen()
 #
 #class ComparisonChain(Expression):
-#    def __new__(self, chain, pos):
+#    def __new__(self, chain):
 #        """A chain of comparisons
 #
 #        chain is something like ('0', 'lt', 'x', 'le', '1'), which
@@ -659,19 +519,17 @@ Comparison = namedtuple('Comparison', 'op a b')
 #        """
 #        split = list(nviews(chain, 3))[::2]
 #        combined = functools.reduce((lambda a, b: LogicalAndExpressions([a, b])),
-#            (Comparison(op, a, b, pos) for a, op, b in split))
+#            (Comparison(op, a, b) for a, op, b in split))
 #        return combined
 #
 # # These are only used inside the parser, and are not present in the final AST
 #
 #class Comprehension(Expression):
-#    def __init__(self, expr, rest, pos):
+#    def __init__(self, expr, rest):
 #        self.expr = expr
 #        self.rest = rest
-#        self.pos = pos
 #
 #class Literal(Expression):
 #    def __init__(self, exprs, pos, *, trailing_comma):
 #        self.exprs = exprs
 #        self.trailing_comma = trailing_comma
-#        self.pos = pos

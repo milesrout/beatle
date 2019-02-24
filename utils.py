@@ -31,12 +31,14 @@ def to_json(x, indent=None):
 
 class MyJSONEncoder(json.JSONEncoder):
     def default(self, o):
+        if isinstance(o, type):
+            return o.__name__
         if isinstance(o, Type):
             return str(o)
         if isinstance(o, Ast):
-            return (o.type.vtype, o.node)
+            return (o.node, ':', o.type.vtype)
         if o.__class__.__module__ == 'typednodes' or isinstance(o, Expression):
-            return (o.__class__.__name__, {k:v for k,v in vars(o).items() if k != 'pos'})
+            return (o.__class__.__name__, {k: v for k, v in vars(o).items() if k != 'pos'})
         if o.__class__.__name__ in ['Token', 'Types']:
             return repr(o)
         return super().default(o)
@@ -301,21 +303,29 @@ def fmt_sexpr_list(o, depth):
         return fmt_sexpr_list_long(o, depth)
     return result
 
+THIS_FILENAME = '/home/miles/programming/ape/beatle/util.py'
+FILENUMBERS = [169, 171, 177]
+
 def format_exception(exc):
     tb = exc.__traceback__
-    cls = exc.__class__
-    return traceback.format_exception(cls, exc, tb)
+    fss = traceback.extract_tb(tb)
+    fss = [fs for fs in fss if fs.filename != THIS_FILENAME and fs.lineno not in FILENUMBERS]
+    return traceback.format_list(fss)
 
 class ApeError(Exception):
     header = None
+
     def __init__(self, pos, msg, input_text=None):
         self.msg = msg
         self.input_text = input_text
-        try:
-            iter(pos)
-            self.pos = list(pos)
-        except TypeError:
-            self.pos = [pos]
+        if pos is None:
+            self.pos = []
+        else:
+            try:
+                iter(pos)
+                self.pos = list(pos)
+            except TypeError:
+                self.pos = [pos]
 
     def format_context(self, input_text, pos):
         linenumber = input_text.count('\n', 0, pos) + 1
@@ -328,26 +338,32 @@ class ApeError(Exception):
         else:
             stripped = line.lstrip()
             wspace = len(line) - len(stripped)
-            pointer = (' ' * (col - wspace - 1)) + '^'
-            context = f'\n{stripped}\n{pointer}'
+            extraws = ' ' * min(6, wspace)
+            pointer = (' ' * (col + len(extraws) - wspace - 1)) + '^'
+            context = f'\n{extraws}{stripped}\n{pointer}'
 
         return context
 
     def format_with_context(self, input_text, stacktrace=False):
         if self.input_text is not None:
             input_text = self.input_text
-        linenumber = input_text.count('\n', 0, self.pos[0]) + 1
-        col = self.pos[0] - input_text.rfind('\n', 0, self.pos[0])
+
+        if len(self.pos) >= 1:
+            header = self.header + '\n' if self.header is not None else ''
+            linenumber = input_text.count('\n', 0, self.pos[0]) + 1
+            col = self.pos[0] - input_text.rfind('\n', 0, self.pos[0])
+            message = f'{header}{linenumber}:{col}: {self.msg}'
+        else:
+            header = self.header if self.header is not None else ''
+            message = f'{header}: {self.msg}'
 
         context = '\n'.join(self.format_context(input_text, p) for p in self.pos)
 
         if stacktrace:
-            tb = ''.join(format_exception(self)[:-1])
+            tb = ''.join(format_exception(self))
         else:
             tb = ''
 
-        header = self.header + '\n' if self.header is not None else ''
-        message = f'{header}{linenumber}:{col}: {self.msg}'
         return '{}{}{}'.format(tb, message, context)
 
 class ApeScanError(ApeError):
@@ -360,6 +376,8 @@ class ApeMacroError(ApeError):
     header = 'ERROR EXPANDING MACROS'
 class ApeTypeError(ApeError):
     header = 'ERROR CHECKING TYPES'
+class ApeEvaluationError(ApeError):
+    header = 'ERROR EVALUATING AST'
 class ApeCodegenError(ApeError):
     header = 'ERROR GENERATING CODE'
 class ApeInternalError(ApeError):

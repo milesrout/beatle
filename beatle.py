@@ -150,7 +150,7 @@ def imports(ast, args, input_text, regexp):
 
 
 def macros(ast, args, input_text):
-    ast = macroexpander.process(ast)
+    ast = macroexpander.process(ast, input_text)
 
     if args.verbose >= 1:
         print('macro-expanded ast:')
@@ -262,7 +262,11 @@ def process_phases(input_text, args, regexp=None, initial_production='file_input
         return result
 
     except ApeError as exc:
-        print(exc.format_with_context(input_text=input_text, stacktrace=args.stacktrace))
+        print(exc.format_with_context(input_text, args.stacktrace))
+        while exc.__cause__ is not None:
+            print('\nThis was caused by the following error:\n')
+            print(exc.__cause__.format_with_context(input_text, args.stacktrace))
+            exc = exc.__cause__
         raise
 
 def main():

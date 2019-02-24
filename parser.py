@@ -137,7 +137,7 @@ class Parser:
         return actual
 
     def expect_get_many(self, *expected):
-        result = [self.current_token()]
+        result = [self.get_token()]
         if result[0].type not in expected:
             friendly = '|'.join(expected)
             raise self.Error(
@@ -391,6 +391,7 @@ class Parser:
         while self.accept_next('dot'):
             yield self.name()
 
+    # a -> b? -> c
     # a -> b -> c
     # a -> (b -> c)
     # a[b] -> c -> d
@@ -419,6 +420,8 @@ class Parser:
 
     def type_atom_expr(self):
         expr = self.type()
+        if self.accept_next('question'):
+            return E.TypeMaybeExpression(expr, expr.pos)
         if self.accept_next('lbrack'):
             return E.TypeCallExpression(expr, self.type_call_args())
         return expr
@@ -601,6 +604,7 @@ class Parser:
                         else:
                             terminator = 'colon'
                         args.append(E.Expressions(self.exprlist(terminator)))
+                        print('ARGS[-1]:', args[-1])
                     elif param == 'TESTLIST':
                         args.append(E.Expressions(self.testlist()))
                     else:

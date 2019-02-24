@@ -53,12 +53,12 @@ class ImportExpander(DeepAstPass):
     @visit.on(E.ImportStatement)
     @compose(E.Statements)
     @compose(list)
-    def _(self, ast):
+    def imexpand_ImportStatement(self, ast):
         for name in ast.names:
             yield self.handler.load_module(name.name, ast.pos)
 
     @visit.on(E.FromImportStatement)
-    def _(self, ast):
+    def imexpand_FromImportStatement(self, ast):
         raise
         self.handler.load_module(ast.name, ast.pos)
         return E.NoneExpression()

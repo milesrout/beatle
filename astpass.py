@@ -156,6 +156,10 @@ class DeepAstPass(AstPass):
     def do_visit_ElseBranch(self, ast):
         return E.ElseBranch, (self.visit(ast.body), ast.pos)
 
+    @do_visit.on(E.DoStatement)
+    def do_visit_DoStatement(self, ast):
+        return E.DoStatement, (self.visit(ast.body), ast.pos)
+
     @do_visit.on(E.IfElifElseStatement)
     def do_visit_IfElifElseStatement(self, ast):
         i = self.visit(ast.if_branch)
@@ -463,6 +467,10 @@ class DeepAstPass(AstPass):
     @do_visit.on(E.TypeForallExpression)
     def do_visit_TypeForallExpression(self, ast):
         return E.TypeForallExpression, (self.visit_all(ast.tvars), self.visit(ast.expr), ast.pos)
+
+    @do_visit.on(E.TypeMaybeExpression)
+    def do_visit_TypeMaybeExpression(self, ast):
+        return E.TypeMaybeExpression, (self.visit(ast.t), ast.pos)
 
     @do_visit.on(E.TypeCallExpression)
     def do_visit_TypeCallExpression(self, ast):

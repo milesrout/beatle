@@ -11,7 +11,7 @@
  * all the things people expect in modern programming languages
    - first-class functions
    - lambda expressions
-   - algebraic data types (A ✗ B; A | B; etc.)
+   - algebraic data types (A ⨯ B; A | B; etc.)
    - pattern matching
    - tail call optimisation
    - parametric polymorphism
@@ -19,7 +19,8 @@
    - memory safety
    - generators
  * intuitive defaults inspired by Python
-   - numbers are arbitrary-precision (floats and fixed-precision integers are opt-in).
+   - numbers are arbitrary-precision (floats and fixed-precision integers
+     are opt-in).
    - if at all possible, naive/obvious operations like append-in-a-loop and
      slicing sequences should be fast.
  * dynamically-scoped 'contexts' that avoid the need to thread the same
@@ -29,8 +30,8 @@
      Python-like syntax. First-class functions go without saying in this day
      and age.
    - *imperative*, with mutable variables when you need them.
-   - *reactive*, with good support for 'reactive' cells that make an 'interactive
-     notebook' experience first-class.
+   - *reactive*, with good support for 'reactive' cells that make an
+     'interactive notebook' experience first-class.
    - *concurrent*, with green threads communicating with channels.
    - *relational*, with built-in support for tables, SQL-like queries and other
      relational programming constructs.
