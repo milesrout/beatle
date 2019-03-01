@@ -676,11 +676,11 @@ class QuoteTypeInference(DeepAstPass):
 
     def override_do_visit_wrapper(self, ast, new):
         if ast is new:
-            return T.Quote(ast, ())  # , self.tc.Types(Expression)
+            return Ast(T.Quote(ast, ()), self.tc.Types(Any), new.pos)
 
         cls, args = new
         try:
-            return T.Quote(cls, args)  # , self.tc.Types(Expression)
+            return Ast(T.Quote(cls, args), self.tc.Types(Any), ast.pos)
         except TypeError:
             print(cls.__name__)
             raise
@@ -691,10 +691,8 @@ class QuoteTypeInference(DeepAstPass):
 
     @visit.on(E.Unquote)
     def qtinfer_Unquote(self, ast):
-        print('Should I be type-checking this?', ast.expr, to_sexpr(ast.expr))
         e, t = self.tc.infer(ast.expr)
-        print('The result was', e, t)
-        self.tc.unify_all(t, self.tc.Types(Expression), ast.pos)
+        self.tc.unify_all(t, self.tc.Types(Any), ast.pos)
         return e
 
 class TypeChecker:
@@ -839,7 +837,7 @@ class TypeChecker:
         try:
             pos = ast.pos
         except Exception:
-            pos = 0
+            pos = None
         raise ApeInternalError(pos=pos, msg='no overload found for {}'.format(ast.__class__))
 
     ######
@@ -925,29 +923,33 @@ class TypeChecker:
 
     @overloadmethod(use_as_wrapper=True, error_function=infer_error)
     def infer(self, original, ast_and_type):
-        if isinstance(ast_and_type, self.Types):
-            raise ApeInternalError(
-                pos=original.pos,
-                msg='You forgot to return the typed node as well as the type itself: {ast_and_type} <= {original}')
-            raise
-        try:
-            ast, t = ast_and_type
-        except TypeError as exc:
-            raise ApeInternalError(
-                pos=original.pos,
-                msg=f'Only returned one of ast and type: {ast_and_type} <= {original}')
+        if isinstance(ast_and_type, Ast):
+            ast, t = ast_and_type.node, ast_and_type.type
+        else:
+            if isinstance(ast_and_type, self.Types):
+                raise ApeInternalError(
+                    pos=original.pos,
+                    msg='You forgot to return the typed node as well as the type itself: {ast_and_type} <= {original}')
+                raise
+            try:
+                ast, t = ast_and_type
+            except TypeError as exc:
+                raise ApeInternalError(
+                    pos=original.pos,
+                    msg=f'Only returned one of ast and type: {ast_and_type} <= {original}')
         ret = Ast(ast, t, original.pos)
         self.asts.append((ret, self.env))
-        #self.solve()
-        #self.update_with_subst(self.subst)
-        #self.partial_solution = solve(self.partial_solution, self.unifiers)
-        #self.update_with_subst(self.partial_solution)
         return ret, t
 
     @infer.on(E.EmptyListExpression)
     def infer_EmptyListExpression(self, ast):
         tv = self.fresh()
         return T.EmptyList(), self.Types(ListType(tv))
+
+    @infer.on(E.EmptySetExpression)
+    def infer_EmptySetExpression(self, ast):
+        tk = self.fresh()
+        return T.EmptySet(), self.Types(SetType(tk))
 
     @infer.on(E.EmptyDictExpression)
     def infer_EmptyDictExpression(self, ast):
@@ -976,7 +978,7 @@ class TypeChecker:
                 self.unify_all(tV, tv, expr.pos)
                 exprs.append(ev)
 
-        return T.SetLit(exprs, ast.pos), tS
+        return T.SetLit(exprs), tS
 
     @infer.on(E.DictLiteral)
     def infer_DictLiteral(self, ast):
@@ -1119,12 +1121,12 @@ class TypeChecker:
             eeib, teib = self.infer(br.body)
             self.unify_all(teib, tib, br.body.pos)
 
-            elifs.append(T.ElifBranch(eeic, eeib, br.pos))
+            elifs.append(T.ElifBranch(eeic, eeib))
 
         if ast.else_branch is not None:
             eeb, teb = self.infer(ast.else_branch.body)
             self.unify_all(teb, tib, ast.else_branch.pos)
-            eelse = T.ElseBranch(eeb, ast.else_branch.pos)
+            eelse = T.ElseBranch(eeb)
         else:
             eelse = None
 
@@ -1156,9 +1158,12 @@ class TypeChecker:
 
     @infer.on(E.ReturnStatement)
     def infer_ReturnStatement(self, ast):
+        if ast.expr is None:
+            return T.Return(None), self.Types.any(Unit, rtype=Unit)
+
         e, t = self.infer(ast.expr)
         self.unify(t.vtype, t.rtype, ast.pos)
-        return T.Return(e), t
+        return T.Return(e), t.but(self.fresh())
 
     @infer.on(E.PassStatement)
     def infer_PassStatement(self, ast):
@@ -1222,14 +1227,16 @@ class TypeChecker:
         t = self.Types()
 
         tc = CoroutineType(self.fresh(), self.fresh(), self.fresh())
-        ef, tf = self.infer(ast.expr)
-        self.unify(tc, tf.vtype)
 
-        self.unify(t.vtype, tc.rtype)
-        self.unify(t.ytype, tc.ytype)
-        self.unify(t.stype, tc.stype)
-        self.unify(t.rtype, tf.rtype)
-        self.unify(t.ctype, tf.ctype)
+        self.unify(t.ytype, tc.ts[0], [ast.pos, ast.expr.pos])
+        self.unify(t.stype, tc.ts[1], [ast.pos, ast.expr.pos])
+        self.unify(t.vtype, tc.ts[2], [ast.pos, ast.expr.pos])
+
+        ef, tf = self.infer(ast.expr)
+
+        self.unify_all(tf, t.but(tc), ast.expr.pos)
+
+        return T.YieldFrom(ef), t
 
         # yield from x should opaquely forward things sent to *the current function* on to *whatever we're yielding from*.
         # and forwarding things yielded by *whatever we're yielding from* to *whatever we're yielding to*.
@@ -1290,7 +1297,7 @@ class TypeChecker:
 
     @infer.on(E.Quasiquote)
     def infer_Quasiquote(self, ast):
-        return QuoteTypeInference(self).visit(ast.expr), self.Types(Expression)
+        return QuoteTypeInference(self).visit(ast.expr)
 
     # Recall that parameter default values are evaluated at definition time in
     # Python. This is also true in Beatle.
@@ -1539,7 +1546,8 @@ def unifies(t1, t2, pos):
             return unify_many(t1.ts, t2.ts, pos)
 
     if isinstance(t1, ParamType) and isinstance(t2, ParamType):
-        raise ApeNotImplementedError(msg='Is this ever necessary?')
+        if t1.name == t2.name and t1.opt == t2.opt:
+            return unifies(t1.t, t2.t, pos)
     if isinstance(t1, ParamType):
         return unifies(t1.t, t2, pos)
     if isinstance(t2, ParamType):

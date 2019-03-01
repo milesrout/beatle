@@ -7,56 +7,42 @@ class EmptyList:
     def __repr__(self):
         return 'EmptyList()'
 
-class EmptyDict:
+class EmptySet:
     def __str__(self):
         return '{}'
+
+    def __repr__(self):
+        return 'EmptySet()'
+
+class EmptyDict:
+    def __str__(self):
+        return '{:}'
 
     def __repr__(self):
         return 'EmptyDict()'
 
 class EmptyTuple:
     def __str__(self):
-        return 'set()'
+        return '()'
 
     def __repr__(self):
         return 'EmptyTuple()'
 
-class SetComp:
-    def __init__(self, expr, clauses):
-        self.expr = expr
-        self.clauses = clauses
+SetComp = namedtuple('SetComp', 'expr, clauses')
 
-class DictComp:
-    def __init__(self, expr, rest):
-        self.expr = expr
-        self.rest = rest
+DictComp = namedtuple('DictComp', 'expr, rest')
 
-class ListComp:
-    def __init__(self, expr, rest):
-        self.expr = expr
-        self.rest = rest
+ListComp = namedtuple('ListComp', 'expr, rest')
 
-class GenExpr:
-    def __init__(self, expr, rest):
-        self.expr = expr
-        self.rest = rest
+GenExpr = namedtuple('GenExpr', 'expr, rest')
 
-class SetLit:
-    def __init__(self, exprs):
-        self.exprs = exprs
+SetLit = namedtuple('SetLit', 'exprs')
 
-class DictLit:
-    def __init__(self, exprs):
-        self.exprs = exprs
+DictLit = namedtuple('DictLit', 'exprs')
 
-class DictKV:
-    def __init__(self, key_expr, value_expr):
-        self.key_expr = key_expr
-        self.value_expr = value_expr
+DictKV = namedtuple('DictKV', 'key_expr, value_expr')
 
-class ListLit:
-    def __init__(self, exprs):
-        self.exprs = exprs
+ListLit = namedtuple('ListLit', 'exprs')
 
 Tuple = namedtuple('Tuple', 'exprs')
 
@@ -90,18 +76,11 @@ class Statements:
         self.stmts = stmts
         self.pos = stmts[0].pos
 
-class Raise:
-    def __init__(self, expr, original):
-        self.expr = expr
-        self.original = original
-#    def is_gen(self):
-#        if self.expr is not None:
-#            if self.original is not None:
-#                return self.expr.is_gen() or self.original.is_gen()
-#            return self.expr.is_gen()
-#        return None
+Raise = namedtuple('Raise', 'expr, original')
 
 Yield = namedtuple('Yield', 'expr')
+
+YieldFrom = namedtuple('YieldFrom', 'expr')
 
 #class DelStatement(Expression):
 #    def __init__(self, exprs):
@@ -123,25 +102,13 @@ Yield = namedtuple('Yield', 'expr')
 #    def __init__(self, names):
 #        self.names = names
 
-class IfBranch:
-    def __init__(self, cond, body):
-        self.cond = cond
-        self.body = body
+IfBranch = namedtuple('IfBranch', 'cond, body')
 
-class ElifBranch:
-    def __init__(self, cond, body):
-        self.cond = cond
-        self.body = body
+ElifBranch = namedtuple('ElifBranch', 'cond, body')
 
-class ElseBranch:
-    def __init__(self, body):
-        self.body = body
+ElseBranch = namedtuple('ElseBranch', 'body')
 
-class IfElifElse:
-    def __init__(self, if_branch, elif_branches, else_branch):
-        self.if_branch = if_branch
-        self.elif_branches = elif_branches
-        self.else_branch = else_branch
+IfElifElse = namedtuple('IfElifElse', 'if_branch, elif_branches, else_branch')
 
 #class MatchStatement(Expression):
 #    def __init__(self, expr, cases):

@@ -156,7 +156,9 @@ class Scanner:
             yield token
         if len(indent_stack) != 0:
             raise self.Error(pos=indent_stack[-1].pos,
-                             msg=f'mismatched indents somehow: {indent_stack[-1]}')
+                             msg=f'mismatched indents somehow: (this probably '
+                                 'means that you forgot to close a bracket '
+                                 'that opened on this line)')
 
     def add_eof_token(self, tokens):
         eof = self.Token('EOF', '', pos=len(self.input_text))

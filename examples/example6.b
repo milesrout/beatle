@@ -4,6 +4,10 @@ c = 3
 zero_result = 0
 nonzero_result = 1
 
+def foo(x):
+    print(x + (yield from x))
+    pass
+
 if a == 0:
     if b:
         if c:
@@ -29,23 +33,31 @@ if a == 0 or b == 1:
 # we don't do macroexpansion yet - need to do it before we do
 # type-checking unless I use structured binding types (λ_s calculus) to
 # have type-checked hygenic macros.
-#print(\[$x])
-#print([x])
-
-#\${1, 2, 3}
+# 2019: why did I ever think that quasiquoting had anything to do with macros??
 
 x = (
         1,
         2,
         3
     )
+print('Hello1')
+
+print(\[$x])
+print([x])
+
+print('Hello2')
+print(\{1, 2, 3})
+print('Hello3')
+print(\${1, 2, 3})
+print('Hello4')
 
 
-def bar(a):
-    confuser = (
-        def(a = (yield)):
-            yield from a
-    )
+print((def(a):
+          confuser = (
+              def(b = (yield)):
+                  yield from b
+          )
+          return None))
 
 def foo():
     print_hello = (def(a, b, c):
@@ -60,3 +72,4 @@ def foo():
                                  print(1, 2, 3); print(a, b, c)
                                  pass),
                         'World'))
+print(foo)

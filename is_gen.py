@@ -56,21 +56,13 @@ class IsGenPass(DeepAstPass):
     def my_visit(self, ast):
         return super().visit(ast)
 
-    @my_visit.on(E.YieldFromExpression)
-    def my_visit_YieldFromExpression(self, ast):
+    @my_visit.on((E.YieldFromExpression, E.YieldExpression))
+    def my_visit_Yield_Or_YieldFrom_Expression(self, ast):
         return Sentinel(True)
 
-    @my_visit.on(E.YieldExpression)
-    def my_visit_YieldExpression(self, ast):
-        return Sentinel(True)
-
-    @my_visit.on(E.FunctionDefinition)
-    def my_visit_FunctionDefinition(self, ast):
-        return E.FunctionDefinition, (ast.params,)
-
-    @my_visit.on(E.FunctionExpression)
-    def my_visit_FunctionExpression(self, ast):
-        return E.FunctionExpression, (ast.params,)
+    @my_visit.on((E.FunctionExpression, E.FunctionDefinition))
+    def my_visit_FunctionDefinition_Or_FunctionExpression(self, ast):
+        return Sentinel(any(self.is_gen(p.default) for p in ast.params if p.default is not None))
 
     @my_visit.wrapper()
     def my_visit_wrapper(self, ast, new):

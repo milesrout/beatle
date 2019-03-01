@@ -13,6 +13,8 @@ class Expression:
 
 class Ast:
     def __init__(self, node, type, pos):
+        if isinstance(node, Ast):
+            raise RuntimeError('This shouldn\'t happen')
         self.node = node
         self.type = type
         self.pos = pos
@@ -21,7 +23,7 @@ class Ast:
         return self.node.evaluate(self.type)
 
     def __str__(self):
-        return f'({self.node} : {self.type})'
+        return f'Ast({self.node}, {self.type})'
 
     def __repr__(self):
         return f'Ast({self.node!r}, {self.type!r}, {self.pos!r})'
@@ -36,7 +38,10 @@ class MyJSONEncoder(json.JSONEncoder):
         if isinstance(o, Type):
             return str(o)
         if isinstance(o, Ast):
-            return (o.node, ':', o.type.vtype)
+            if str(o.type.vtype) == 'unit':
+                return o.node
+            return (o.type.vtype, ':', o.node)
+            return ('Ast', o.node, o.type.vtype)
         if o.__class__.__module__ == 'typednodes' or isinstance(o, Expression):
             return (o.__class__.__name__, {k: v for k, v in vars(o).items() if k != 'pos'})
         if o.__class__.__name__ in ['Token', 'Types']:
@@ -303,13 +308,21 @@ def fmt_sexpr_list(o, depth):
         return fmt_sexpr_list_long(o, depth)
     return result
 
-THIS_FILENAME = '/home/miles/programming/ape/beatle/util.py'
-FILENUMBERS = [169, 171, 177]
+EXC_IGNORE = {
+    '/home/miles/programming/ape/beatle/utils.py': [171, 173, 179],
+    '/home/miles/programming/ape/beatle/evaluator.py': [130],
+}
+
+def ignore(fs):
+    if fs.filename in EXC_IGNORE:
+        if fs.lineno in EXC_IGNORE[fs.filename]:
+            return True
+    return False
 
 def format_exception(exc):
     tb = exc.__traceback__
     fss = traceback.extract_tb(tb)
-    fss = [fs for fs in fss if fs.filename != THIS_FILENAME and fs.lineno not in FILENUMBERS]
+    fss = [fs for fs in fss if fs == fss[-1] or not ignore(fs)]
     return traceback.format_list(fss)
 
 class ApeError(Exception):

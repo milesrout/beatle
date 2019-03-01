@@ -7,6 +7,19 @@ import utils
 import cstnodes as C
 import typednodes as T
 
+class FunctionObject:
+    def __init__(self, f, name=None):
+        self.f = f
+        self.name = name
+
+    def __repr__(self):
+        if self.name is not None:
+            return f'<{self.__class__.__qualname__} object {self.name} at 0x{id(self):x}>'
+        return super().__repr__()
+
+    def __call__(self, *args, **kwds):
+        self.f(*args, **kwds)
+
 class Expression:
     def __init__(self, expr, pos):
         self.expr = expr
@@ -27,21 +40,25 @@ class Something:
     def __repr__(self):
         return f'something({self.v})'
 
-FakeToken = collections.namedtuple('FakeToken', 'string pos')
+FakeToken = collections.namedtuple('FakeToken', 'type string pos')
 def gensym(fresh_vars=itertools.count(0)):
-    return C.IdExpression(FakeToken('G' + str(next(fresh_vars)), pos=[]))
+    return C.IdExpression(FakeToken('id', 'G' + str(next(fresh_vars)), pos=[]))
 
 def stringify(expr):
-    print('--------------------------------------')
-    print(expr, type(expr))
-    return C.StringExpression([FakeToken(utils.to_sexpr(expr), pos=expr.pos)])
+    return C.StringExpression([FakeToken('string', utils.to_sexpr(expr), pos=expr.pos)])
+
+def my_print(*args):
+    print('APE@@', *args)
+
+def my_str(x):
+    return 'APE::' + str(x)
 
 DEFAULTS = {
     'stringify': stringify,
     'something': Something,
     'nothing': Nothing,
-    'print': print,
-    'str': str,
+    'print': my_print,
+    'str': my_str,
     'gensym': gensym,
     'RuntimeError': RuntimeError,
     'AssertionError': AssertionError,
@@ -123,10 +140,8 @@ class Evaluate:
 
     @eval.on(utils.Ast)
     def eval_Ast(self, ast):
-        # print('-----ast', type(ast), ast)
         if type(ast.node) == tuple:
-            print(ast.node)
-            raise
+            raise utils.ApeInternalError(ast.pos, msg='This should never be a tuple, error somewhere else')
         return self.eval(ast.node, ast.pos)
 
     def recursive_eval(self, args, pos):
@@ -142,23 +157,38 @@ class Evaluate:
         return args
 
     def unevaluate(self, value, pos):
-        print('-----value', value, repr(value), type(value), value.__class__)
+        # print('-----value', value, repr(value), type(value), value.__class__)
         if value is True:
-            return C.TrueExpression(pos=pos)
+            return C.TrueExpression(pos)
+        if value is False:
+            return C.FalseExpression(pos)
+        if value == []:
+            return C.EmptyListExpression(pos)
+        if value == set():
+            return C.EmptySetExpression(pos)
+        if value == {}:
+            return C.EmptyDictExpression(pos)
+        if value == ():
+            return C.EmptyTupleExpression(pos)
+        if type(value) is tuple:
+            return C.TupleLiteral([self.unevaluate(v, pos) for v in value], pos)
+        if type(value) is set:
+            return C.SetLiteral([self.unevaluate(v, pos) for v in value], pos)
+        if type(value) is list:
+            return C.ListLiteral([self.unevaluate(v, pos) for v in value], pos)
+        if type(value) is int:
+            return C.IntExpression.from_decimal(value, pos)  # (FakeToken('decimal_int', value, pos))
         if type(value) is str:
-            return C.StringExpression([FakeToken(value, pos)])
+            return C.StringExpression.from_string(value, pos)  # ([FakeToken('string', value, pos)])
         if isinstance(value, utils.Expression):
             return value
-            return Expression(value, pos)
-        raise NotImplementedError(f'Have not implemented "{value!r}"')
+        raise NotImplementedError(f'Have not implemented "{value!r}" in unevaluator')
 
     @eval.on(T.Quote)
     def eval_Quote(self, ast, pos):
         if isinstance(ast.cls, C.Expression):
             return ast.cls
-        # print('-----unevaluated', ast.cls, ast.args)
         args = tuple(self.recursive_eval(a, pos) for a in ast.args)
-        # print('-----evaluated', ast.cls, args)
         return ast.cls(*args)
 
     @eval.on(T.Comparison)
@@ -166,6 +196,30 @@ class Evaluate:
         if ast.op == 'eq':
             return self.eval(ast.a) == self.eval(ast.b)
         self.raise_op(ast, ast.op, pos)
+
+    @eval.on(T.SetLit)
+    def eval_SetLit(self, ast, pos):
+        return {self.eval(expr) for expr in ast.exprs}
+
+    @eval.on(T.EmptySet)
+    def eval_EmptySet(self, ast, pos):
+        return set()
+
+    @eval.on(T.EmptyList)
+    def eval_EmptyList(self, ast, pos):
+        return []
+
+    @eval.on(T.ListLit)
+    def eval_ListLit(self, ast, pos):
+        return [self.eval(expr) for expr in ast.exprs]
+
+    @eval.on(T.LogicalAnd)
+    def eval_LogicalAnd(self, ast, pos):
+        return all(self.eval(expr) for expr in ast.exprs)
+
+    @eval.on(T.LogicalOr)
+    def eval_LogicalOr(self, ast, pos):
+        return any(self.eval(expr) for expr in ast.exprs)
 
     @eval.on(T.LogicalNot)
     def eval_LogicalNot(self, ast, pos):
@@ -230,7 +284,6 @@ class Evaluate:
 
     @eval.on(T.Call)
     def eval_Call(self, ast, pos):
-        print(ast)
         f = self.eval(ast.f)
         args = [self.eval(a) for a in ast.args]
         return f(*args)
@@ -264,7 +317,11 @@ class Evaluate:
     def eval_Yield(self, ast, pos):
         raise utils.ApeNotImplementedError(pos, 'Wait a minute')
 
-    def eval_function_body(self, sig, body, pos):
+    @eval.on(T.Pass)
+    def eval_Pass(self, ast, pos):
+        return
+
+    def eval_function_body(self, sig, body, pos, name=None):
         def do_evaluate(*args):
             try:
                 ba = sig.bind(*args)
@@ -276,7 +333,11 @@ class Evaluate:
                     return self.eval(body)
                 except EVAL_EarlyReturn as exc:
                     return exc.value
-        return do_evaluate
+
+        if name is None:
+            name = '<lambda>'
+
+        return FunctionObject(do_evaluate, name)
 
     def eval_parameters(self, ast_params, defaults):
         no_more_pos_params = False
@@ -289,6 +350,8 @@ class Evaluate:
                 else:
                     kind = Parameter.POSITIONAL_OR_KEYWORD
                 if param.default is not None:
+                    # Default values for parameters are evaluated when the
+                    # function is defined, just like in Python
                     default = self.eval(default_ast)
             elif isinstance(param, C.StarVarParams):
                 kind = Parameter.VAR_POSITIONAL
@@ -308,7 +371,7 @@ class Evaluate:
     @eval.on(T.FunctionDefinition)
     def eval_FunctionDefinition(self, ast, pos):
         sig = self.eval_parameters(ast.params, ast.defaults)
-        self.assign(ast.name, self.eval_function_body(sig, ast.body, pos))
+        self.assign(ast.name, self.eval_function_body(sig, ast.body, pos, name=ast.name))
 
 def evaluate(ast):
     try:

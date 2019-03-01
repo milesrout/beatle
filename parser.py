@@ -118,11 +118,8 @@ class Parser:
             self.consume_token()
         self.consume_token()
 
-    def get_token(self, type=None):
-        tok = self.tokens[self.index]
-        if type is not None and tok.type != type:
-            raise self.Error(
-                tok.pos, f"{self.virtuals} - expected '{type}', got {tok}")
+    def get_token(self):
+        tok = self.current_token()
         self.next_token()
         return tok
 
@@ -628,8 +625,9 @@ class Parser:
             return self.decorated(pos)
         elif self.accept_next('match'):
             return self.match_stmt(pos)
-        return self.expr_stmt()
-        self.raise_unexpected()
+        return None
+        #return self.expr_stmt()
+        ##self.raise_unexpected()
 
     def match_case(self, pos):
         tlse = self.testlist_star_expr()
@@ -1202,8 +1200,11 @@ class Parser:
             return self.list_comp_or_list_literal(pos, expr)
         if self.accept('lbrace'):
             pos = self.get_token().pos
-            if self.accept_next('rbrace'):
+            if self.accept_next('colon'):
+                self.expect('rbrace')
                 return E.EmptyDictExpression(pos)
+            if self.accept_next('rbrace'):
+                return E.EmptySetExpression(pos)
             dictorset = self.dictorsetmaker(pos)
             self.expect('rbrace')
             return dictorset
@@ -1214,6 +1215,9 @@ class Parser:
         if self.accept(*self.float_tokens):
             return self.float_number()
         if self.accept(*self.string_tokens):
+            print(self.current_token())
+            if self.current_token().line in range(59, 62):
+                pass  # self.raise_unexpected()
             return self.string()
         if self.accept('ellipsis'):
             return E.EllipsisExpression(self.get_token().pos)

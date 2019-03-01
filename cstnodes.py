@@ -9,6 +9,13 @@ class EmptyListExpression(Expression):
     def __repr__(self):
         return 'EmptyListExpression'
 
+class EmptySetExpression(Expression):
+    def __init__(self, pos):
+        self.pos = pos
+
+    def __repr__(self):
+        return 'EmptyDictExpression'
+
 class EmptyDictExpression(Expression):
     def __init__(self, pos):
         self.pos = pos
@@ -484,6 +491,14 @@ class IntExpression(Expression):
         self.value = token.string
         self.pos = token.pos
 
+    @classmethod
+    def from_decimal(cls, value, pos):
+        expr = cls.__new__(cls, None)
+        expr.base = 'decimal_int'
+        expr.value = value
+        expr.pos = pos
+        return expr
+
 class FloatExpression(Expression):
     def __init__(self, token):
         self.format = token.type
@@ -505,6 +520,13 @@ class StringExpression(Expression):
         'Unparsed is a list of strings'
         self.unparsed = unparsed
         self.pos = unparsed[0].pos
+
+    @classmethod
+    def from_string(cls, value, pos):
+        expr = cls.__new__(cls, None)
+        expr.unparsed = [value]
+        expr.pos = pos
+        return expr
 
 class SymbolExpression(Expression):
     def __init__(self, token):

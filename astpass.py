@@ -54,6 +54,10 @@ class DeepAstPass(AstPass):
     def do_visit_EmptyDictExpression(self, ast):
         return ast
 
+    @do_visit.on(E.EmptySetExpression)
+    def do_visit_EmptySetExpression(self, ast):
+        return ast
+
     @do_visit.on(E.EmptyTupleExpression)
     def do_visit_EmptyTupleExpression(self, ast):
         return ast
@@ -123,6 +127,10 @@ class DeepAstPass(AstPass):
         expr = self.visit_maybe(ast.expr)
         original = self.visit_maybe(ast.original)
         return E.RaiseStatement, (expr, original, ast.pos)
+
+    @do_visit.on(E.YieldFromExpression)
+    def do_visit_YieldFromExpression(self, ast):
+        return E.YieldFromExpression, (self.visit(ast.expr), ast.pos)
 
     @do_visit.on(E.YieldExpression)
     def do_visit_YieldExpression(self, ast):
