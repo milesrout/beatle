@@ -2,7 +2,7 @@ import contextlib
 import collections
 
 import cstnodes as E
-from utils import ApeSyntaxError, compose
+from utils import ApeNotImplementedError, ApeSyntaxError, compose
 
 class Parser:
     """A parser for the Beatle programming language"""
@@ -79,6 +79,8 @@ class Parser:
         self.brackets = 0
         self.linked_control_structures = collections.ChainMap(self.base_linked_control_structures)
         self.calculate_compound_stmt_tokens()
+        self.unary_tags = []
+        self.nullary_tags = []
 
         class Error(ApeSyntaxError):
             def __init__(self, msg, pos):
@@ -403,9 +405,35 @@ class Parser:
         return E.TypeForallExpression([], self.type_expr(), pos=pos)
 
     def type_expr(self):
+        pos = self.current_token().pos
+        exprs = [self.type_tagged_expr()]
+        while self.accept_next('bit_or'):
+            exprs.append(self.type_tagged_expr())
+        if len(exprs) == 1:
+            return exprs[0]
+        return E.TypeDisjunctionExpression(exprs, pos)
+
+    def type_tagged_expr(self):
+        pos = self.current_token().pos
+        if self.accept_next('exclamation'):
+            tag = self.name()
+            if tag.name in self.nullary_tags:
+                return E.TypeTaggedExpression(tag, None, pos)
+            if tag.name in self.unary_tags:
+                return E.TypeTaggedExpression(tag, self.type_func_expr(), pos)
+            if self.accept('id'):
+                self.unary_tags.append(tag.name)
+                t = self.type_func_expr()
+                return E.TypeTaggedExpression(tag, t, pos)
+            else:
+                self.nullary_tags.append(tag.name)
+                return E.TypeTaggedExpression(tag, None, pos)
+        return self.type_func_expr()
+
+    def type_func_expr(self):
         expr = self.type_atom_expr()
         if self.accept_next('arrow'):
-            return E.TypeFunctionExpression(expr, self.type_expr())
+            return E.TypeFunctionExpression(expr, self.type_func_expr())
         return expr
 
     def forall_type_expr(self, pos):
@@ -559,17 +587,44 @@ class Parser:
         pos = self.current_token().pos
         if self.accept_next('macro'):
             return self.macro_def(pos)
-        if self.accept_next('parser_directive'):
-            return self.parser_directive(pos)
+        if self.accept_next('control_structure'):
+            self.expect('lparen')
+            return self.control_structure(pos)
         return self.compound_stmt()
 
-    def parser_directive(self, pos):
-        self.linked_control_structures['switch'] = {
-            'switch': [[None]],
-            'on': [[None]],
-        }
+    def control_structure(self, pos):
+        arm_pos = self.current_token().pos
+        arms = [self.control_structure_arm(arm_pos)]
+        if arms[0][0] in self.linked_control_structures:
+            raise ApeSyntaxError(pos=arm_pos, msg='There is already a control '
+                                                  'structure initiated by '
+                                                  f"'{arms[0][0]}'")
+        while self.accept_next('lparen'):
+            arms.append(self.control_structure_arm(arm_pos))
+        self.linked_control_structures[arms[0][0]] = dict(arms)
+        self.expect('newline')
         self.calculate_compound_stmt_tokens()
         return E.NoneExpression(pos)
+
+    def control_structure_arm(self, pos):
+        name = self.expect_get('id', *self.compound_stmt_tokens).string
+        arm = [[]]
+        while not self.accept_next('rparen'):
+            print('x', self.current_token())
+            if self.accept('id'):
+                arm[-1].append(self.get_token().string)
+            elif self.accept(*self.compound_stmt_tokens):
+                arm[-1].append(self.get_token().string)
+            elif self.accept_next('bit_and'):
+                arm.append([])
+            elif self.accept_next('lt'):
+                arm[-1].append(self.expect_get('id').string.upper())
+                self.expect('gt')
+            else:
+                self.raise_unexpected()
+            print('y', self.current_token())
+        return name, arm
+        raise ApeNotImplementedError(pos, 'control_structure directive')
 
     def compound_stmt(self):
         if self.accept(*self.compound_stmt_tokens):
@@ -597,18 +652,16 @@ class Parser:
                         args.append(self.expr())
                     elif param == 'EXPRLIST':
                         if i + 1 < len(option):
-                            terminator = option[i + 1]
+                            terminators = (option[i + 1],)
                         else:
-                            terminator = 'colon'
-                        args.append(E.Expressions(self.exprlist(terminator)))
-                        print('ARGS[-1]:', args[-1])
+                            terminators = ('colon', 'exclamation')
+                        args.append(E.Expressions(self.exprlist(*terminators)))
                     elif param == 'TESTLIST':
                         args.append(E.Expressions(self.testlist()))
                     else:
                         args.append([E.SymbolExpression(self.expect_get(param))])
-                if self.accept('colon'):
+                if self.accept('colon', 'exclamation'):
                     break
-            self.expect('colon')
             yield E.ControlStructureLinkExpression(name, args, self.suite(), pos)
             if not self.accept(*self.acceptable_lcs_successors(initial)):
                 break
@@ -631,12 +684,14 @@ class Parser:
 
     def match_case(self, pos):
         tlse = self.testlist_star_expr()
-        self.expect('colon')
         suite = self.suite()
         return E.MatchCase(tlse, suite, pos)
 
     @compose(list)
     def match_cases(self):
+        if self.accept_next('exclamation'):
+            return []
+        self.expect('colon')
         self.expect('newline')
         self.expect('indent')
         pos = self.current_token().pos
@@ -646,11 +701,13 @@ class Parser:
 
     def match_stmt(self, pos):
         expr = self.test()
-        self.expect('colon')
         cases = self.match_cases()
         return E.MatchStatement(expr, cases, pos)
 
     def signature_suite(self):
+        if self.accept_next('exclamation'):
+            return []
+        self.expect('colon')
         if self.accept_next('newline'):
             self.expect('indent')
             exprs = []
@@ -663,7 +720,6 @@ class Parser:
 
     def signature_def(self, pos):
         name = self.name()
-        self.expect('colon')
         body = self.signature_suite()
         return E.SignatureDefinition(name, body, pos)
 
@@ -674,7 +730,6 @@ class Parser:
             typ = self.type_expr()
         else:
             typ = None
-        self.expect('colon')
         body = self.suite()
         return E.ModuleDefinition(name, params, typ, body, pos)
 
@@ -711,7 +766,6 @@ class Parser:
     def macro_def(self, pos):
         name = self.name()
         params = self.parameters()
-        self.expect('colon')
         suite = self.suite()
         return E.MacroDefinition(name, params, suite, pos)
 
@@ -722,7 +776,6 @@ class Parser:
             return_annotation = self.type_expr()
         else:
             return_annotation = None
-        self.expect('colon')
         suite = self.suite()
         return E.FunctionDefinition(name, params, suite, return_annotation, pos)
 
@@ -807,10 +860,12 @@ class Parser:
             if not self.accept('rparen'):
                 self.raise_unexpected()
             break
+        print('varparamslist', params)
         return params
 
     def vfpdef(self):
-        return self.name().name, None
+        print('vfpdef')
+        return self.name()
 
     def typedparamslist(self):
         pos = self.current_token().pos
@@ -842,6 +897,9 @@ class Parser:
         return (name, annotation)
 
     def suite(self):
+        if self.accept_next('exclamation'):
+            return E.Statements([])
+        self.expect('colon')
         if self.accept_next('newline'):
             self.expect('indent')
             stmts = []
@@ -869,23 +927,22 @@ class Parser:
             return_annotation = self.type_expr()
         else:
             return_annotation = None
-        self.expect('colon')
         suite = self.suite()
         return E.FunctionExpression(params, suite, return_annotation, pos)
 
     def lambdef(self, pos):
         if self.accept_next('colon'):
-            return E.LambdaExpression(args=[], body=self.test(), pos=pos)
-        args = self.varparamslist()
+            return E.LambdaExpression(params=[], body=self.test(), pos=pos)
+        params = self.varparamslist()
         self.expect('colon')
-        return E.LambdaExpression(args=args, body=self.test(), pos=pos)
+        return E.LambdaExpression(params=params, body=self.test(), pos=pos)
 
     def lambda_nocond(self, pos):
         if self.accept_next('colon'):
-            return E.LambdaExpression(args=[], body=self.test_nocond(), pos=pos)
-        args = self.varparamslist()
+            return E.LambdaExpression(params=[], body=self.test_nocond(), pos=pos)
+        params = self.varparamslist()
         self.expect('colon')
-        return E.LambdaExpression(args=args, body=self.test_nocond(), pos=pos)
+        return E.LambdaExpression(params=params, body=self.test_nocond(), pos=pos)
 
     def test_nocond(self):
         pos = self.current_token().pos
@@ -1016,6 +1073,14 @@ class Parser:
 
     def quasiatom(self):
         pos = self.current_token().pos
+        if self.accept_next('exclamation'):
+            print(self.nullary_tags, self.unary_tags)
+            tag = self.name()
+            if tag.name in self.nullary_tags:
+                return E.TaggedExpression(tag, None, pos=pos)
+            else:
+                assert tag.name in self.unary_tags
+                return E.TaggedExpression(tag, self.quasiatom(), pos=pos)
         if self.accept_next('backslash'):
             return E.Quasiquote(self.quasiatom(), pos=pos)
         if self.accept_next('unquote'):
@@ -1071,7 +1136,7 @@ class Parser:
             return E.KeywordArg(keyword, self.test())
         if self.accept('for'):
             return E.CompForArg(keyword, self.comp_for())
-        return keyword
+        return E.PlainArg(keyword)
 
     @compose(list)
     def index_trailer(self):
@@ -1215,7 +1280,6 @@ class Parser:
         if self.accept(*self.float_tokens):
             return self.float_number()
         if self.accept(*self.string_tokens):
-            print(self.current_token())
             if self.current_token().line in range(59, 62):
                 pass  # self.raise_unexpected()
             return self.string()

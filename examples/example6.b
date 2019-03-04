@@ -5,12 +5,13 @@ zero_result = 0
 nonzero_result = 1
 
 def foo(x):
-    print(x + (yield from x))
+    yield from x
+    print(str(x))
     pass
 
 if a == 0:
-    if b:
-        if c:
+    if b == 0:
+        if c == 0:
             pass
             #(print("hello"),
             # print("hello"))
@@ -28,7 +29,7 @@ if a == 0 or b == 1:
              zero_result
          else:
              nonzero_result)
-    print(a, b)
+    print(str(a), str(b))
 
 # we don't do macroexpansion yet - need to do it before we do
 # type-checking unless I use structured binding types (λ_s calculus) to
@@ -40,36 +41,34 @@ x = (
         2,
         3
     )
-print('Hello1')
 
-print(\[$x])
-print([x])
+# You cannot reference local variables with eval
+# print(str(eval(\x)))
 
-print('Hello2')
-print(\{1, 2, 3})
-print('Hello3')
-print(\${1, 2, 3})
-print('Hello4')
+print(str(eval(\[$x])))
+print(str([x]))
+
+print(str(eval(\{1, 2, 3})))
+print(str(\${1, 2, 3}))
 
 
-print((def(a):
-          confuser = (
-              def(b = (yield)):
-                  yield from b
-          )
-          return None))
+print(str((def(a):
+               confuser = (
+                   def(b = (yield)):
+                       yield from b
+               )
+               return None)))
 
 def foo():
     print_hello = (def(a, b, c):
-                       a; b; c
-                       print(def():
-                               print()
-                               print(
-                                  (1, 2, 3),
-                                (a, b, c)))
+                       print(str(def():
+                                   print()
+                                   print(
+                                      str((1, 2, 3)),
+                                    str((a, b, c)))))
                        print('Hello',
-                             (def():
-                                 print(1, 2, 3); print(a, b, c)
-                                 pass),
+                             str((def():
+                                     print('1', '2', '3'); print(a, b, c)
+                                     pass)),
                         'World'))
-print(foo)
+print(str(foo))

@@ -1,3 +1,3 @@
-print(\$[\{$[]}])
-print(\${\[${}]})
-print(\$1)
+print(str(\$[eval(\{$[]})]))
+print(str(\${eval(\[${}])}))
+print(str(\$1))

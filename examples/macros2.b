@@ -1,7 +1,6 @@
 DEBUG = True
 
 macro ASSERT(e):
-    raise AssertionError('This is just silly, \'assert\' already exists!')
     \(if DEBUG:
         if not $e:
             raise AssertionError($(stringify(e))))

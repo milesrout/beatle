@@ -1,5 +1,5 @@
 [
-	"parser_directive",
+	"control_structure",
 	"match",
 	"case",
 	"yield",

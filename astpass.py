@@ -31,6 +31,11 @@ class DeepAstPass(AstPass):
     def do_visit(self, ast):
         ...
 
+    @do_visit.default()
+    def do_visit_default(self, *args, **kwds):
+        print(args, kwds)
+        raise
+
     @do_visit.wrapper()
     def do_visit_wrapper(self, ast, new):
         return self.override_do_visit_wrapper(ast, new)
@@ -97,6 +102,10 @@ class DeepAstPass(AstPass):
     @do_visit.on(E.TupleLiteral)
     def do_visit_TupleLiteral(self, ast):
         return E.TupleLiteral, (self.visit_all(ast.exprs), ast.pos)
+
+    @do_visit.on(E.TaggedExpression)
+    def do_visit_TaggedExpression(self, ast):
+        return E.TaggedExpression, (self.visit(ast.tag), self.visit_maybe(ast.expr), ast.pos)
 
     @do_visit.on(E.Quasiquote)
     def do_visit_Quasiquote(self, ast):
@@ -428,6 +437,10 @@ class DeepAstPass(AstPass):
     def do_visit_StarStarKwarg(self, ast):
         return E.StarStarKwarg, (self.visit(ast.name),)
 
+    @do_visit.on(E.PlainArg)
+    def do_visit_PlainArg(self, ast):
+        return E.PlainArg, (self.visit(ast.expr),)
+
     @do_visit.on(E.KeywordArg)
     def do_visit_KeywordArg(self, ast):
         return E.KeywordArg, (self.visit(ast.name), self.visit(ast.expr))
@@ -480,6 +493,14 @@ class DeepAstPass(AstPass):
     def do_visit_TypeMaybeExpression(self, ast):
         return E.TypeMaybeExpression, (self.visit(ast.t), ast.pos)
 
+    @do_visit.on(E.TypeDisjunctionExpression)
+    def do_visit_TypeDisjunctionExpression(self, ast):
+        return E.TypeDisjunctionExpression, (self.visit_all(ast.ts), ast.pos)
+
+    @do_visit.on(E.TypeTaggedExpression)
+    def do_visit_TypeTaggedExpression(self, ast):
+        return E.TypeTaggedExpression, (self.visit(ast.tag), self.visit_maybe(ast.t), ast.pos)
+
     @do_visit.on(E.TypeCallExpression)
     def do_visit_TypeCallExpression(self, ast):
         return E.TypeCallExpression, (self.visit(ast.atom), self.visit_all(ast.args))
@@ -502,7 +523,7 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.Param)
     def do_visit_Param(self, ast):
-        return E.Param, (self.visit(ast.name), self.visit_maybe(ast.annotation), self.visit_maybe(ast.default))
+        return E.Param, (ast.name, self.visit_maybe(ast.annotation), self.visit_maybe(ast.default))
 
     @do_visit.on(E.EndOfPosParams)
     def do_visit_EndOfPosParams(self, ast):

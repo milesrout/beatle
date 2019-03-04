@@ -86,6 +86,12 @@ class QuoteExpression(Expression):
         self.args = args
         self.pos = pos
 
+class TaggedExpression(Expression):
+    def __init__(self, tag, expr, pos):
+        self.tag = tag
+        self.expr = expr
+        self.pos = pos
+
 class Quasiquote(Expression):
     def __init__(self, expr, pos):
         self.expr = expr
@@ -264,6 +270,7 @@ class LambdaExpression(Expression):
     def __init__(self, params, body, pos):
         self.params = params
         self.body = body
+        self.return_annotation = None
         self.pos = pos
 
 class NamespaceDefinition(Expression):
@@ -515,6 +522,9 @@ class IdExpression(Expression):
         self.name = name.string
         self.pos = name.pos
 
+    def __repr__(self):
+        return f'IdExpression({self.name})'
+
 class StringExpression(Expression):
     def __init__(self, unparsed):
         'Unparsed is a list of strings'
@@ -560,22 +570,31 @@ class Slice(Expression):
         self.step = step
 
 class StarArg(Expression):
-    def __init__(self, name):
+    def __init__(self, name, pos):
         self.name = name
+        self.pos = pos
 
 class StarStarKwarg(Expression):
-    def __init__(self, name):
+    def __init__(self, name, pos):
         self.name = name
+        self.pos = pos
+
+class PlainArg(Expression):
+    def __init__(self, expr):
+        self.expr = expr
+        self.pos = expr.pos
 
 class KeywordArg(Expression):
     def __init__(self, name, expr):
         self.name = name
         self.expr = expr
+        self.pos = expr.pos
 
 class CompForArg(Expression):
-    def __init__(self, keyword, comp):
+    def __init__(self, keyword, comp, pos):
         self.keyword = keyword
         self.comp = comp
+        self.pos = pos
 
 class CompForClause(Expression):
     def __init__(self, exprs, iterable):
@@ -623,6 +642,17 @@ class TypeForallExpression(Expression):
     def __init__(self, tvars, expr, pos):
         self.tvars = tvars
         self.expr = expr
+        self.pos = pos
+
+class TypeDisjunctionExpression(Expression):
+    def __init__(self, ts, pos):
+        self.ts = ts
+        self.pos = pos
+
+class TypeTaggedExpression(Expression):
+    def __init__(self, tag, t, pos):
+        self.tag = tag
+        self.t = t
         self.pos = pos
 
 class TypeMaybeExpression(Expression):

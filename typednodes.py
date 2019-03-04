@@ -42,7 +42,7 @@ DictLit = namedtuple('DictLit', 'exprs')
 
 DictKV = namedtuple('DictKV', 'key_expr, value_expr')
 
-ListLit = namedtuple('ListLit', 'exprs')
+List = namedtuple('List', 'exprs')
 
 Tuple = namedtuple('Tuple', 'exprs')
 
@@ -110,6 +110,8 @@ ElseBranch = namedtuple('ElseBranch', 'body')
 
 IfElifElse = namedtuple('IfElifElse', 'if_branch, elif_branches, else_branch')
 
+Do = namedtuple('Do', 'body')
+
 #class MatchStatement(Expression):
 #    def __init__(self, expr, cases):
 #        self.expr = expr
@@ -120,12 +122,9 @@ IfElifElse = namedtuple('IfElifElse', 'if_branch, elif_branches, else_branch')
 #        self.pattern = pattern
 #        self.body = body
 #
-#class WhileStatement(Expression):
-#    def __init__(self, cond, body, alt):
-#        self.cond = cond
-#        self.body = body
-#        self.alt = alt
-#
+
+While = namedtuple('While', 'cond body alt')
+
 #class ForStatement(Expression):
 #    def __init__(self, assignees, iterables, body, alt):
 #        self.assignees = assignees
@@ -151,6 +150,8 @@ IfElifElse = namedtuple('IfElifElse', 'if_branch, elif_branches, else_branch')
 FunctionDefinition = namedtuple('FunctionDefinition', 'name params defaults body')
 
 Function = namedtuple('Function', 'params defaults body')
+
+Lambda = namedtuple('Lambda', 'params defaults body')
 
 #class LambdaExpression(Expression):
 #    def __init__(self, args, body):
@@ -281,7 +282,9 @@ Unary = namedtuple('Unary', 'op, expr')
 #            atom = trailer.fix(atom)
 #        return atom
 
-Call = namedtuple('Call', 'f args')
+Call = namedtuple('Call', 'f args kwds')
+
+Index = namedtuple('Index', 'expr indices')
 
 #class IndexExpression(Expression):
 #    def __init__(self, atom, indices):

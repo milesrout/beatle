@@ -124,52 +124,13 @@ def try_expand(ast):
 
 fake_token = namedtuple('fake_token', 'string, pos')
 
-class LiteralWrapper(DeepAstPass):
-    def __init__(self, qqexpander):
-        self.qqexpand = qqexpander.visit
-
-    def override_do_visit_wrapper(self, ast, new):
-        if ast is new:
-            return E.QuoteExpression(ast, (), ast.pos)
-
-        cls, args = new
-        try:
-            return E.QuoteExpression(cls, args, ast.pos)
-        except TypeError:
-            print(cls.__name__)
-            raise
-
-    @utils.overloadmethod(use_as_default=True)
-    def visit(self, ast):
-        return self.do_visit(ast)
-
-    @visit.on(E.Unquote)
-    def qqexpand_Unquote(self, ast):
-        print('unquote', to_sexpr(ast))
-        return ast.expr
-
-class QuasiquoteExpander(DeepAstPass):
-    def __init__(self, processor):
-        self.processor = processor
-        self.wrap = LiteralWrapper(self).visit
-
-    @utils.overloadmethod(use_as_default=True)
-    def visit(self, ast):
-        return self.do_visit(ast)
-
-    @visit.on(E.Quasiquote)
-    def qqexpand_Quasiquote(self, ast):
-        print('quasiquote', to_sexpr(ast))
-        return self.wrap(ast.expr)
-        #return E.CallExpression(E.IdExpression(fake_token('literal', ast.pos)), [self.wrap(ast.expr)], ast.pos)
-
 # MacroProcessor should look recursively at all the forms it is given
 # If a form is a MacroDefinition form, it should add it to its
 # macro environment and replace the form with a NoneExpression.
 # Otherwise, it should expand all the macros in the form.
 
 class MacroProcessor(DeepAstPass):
-    def __init__(self, input_text):
+    def __init__(self):
         self.env = {
             'do': do_expand,
             'if': if_expand,
@@ -179,7 +140,6 @@ class MacroProcessor(DeepAstPass):
             'try': try_expand
         }
         self.expand = MacroExpander(self).visit
-        self.input_text = input_text
 
     @utils.overloadmethod(use_as_default=True)
     def visit(self, ast):
@@ -193,41 +153,33 @@ class MacroProcessor(DeepAstPass):
     def process_MacroDefinition(self, ast):
         # === define the macro properly here ===
         def do_expand(call_expr):
-            # print(to_sexpr(func_expr))
-            i = TypeChecker(self.input_text)
-            # e, t = i.infer(func_expr)
-            # s = solve({}, i.unifiers)
-            # i.update_with_subst(s)
-            # i.print_env()
-            # print('-----e, t', e, t)
-            # input()
-            print(to_sexpr(func_expr))
-            args = [E.Quasiquote(a, a.pos) for a in call_expr.args]
-            print(to_sexpr(args))
+            i = TypeChecker()
+            if isinstance(call_expr, E.CallExpression):
+                if not all(isinstance(arg, E.PlainArg) for arg in call_expr.args):
+                    raise utils.ApeNotImplementedError(pos=ast.pos, msg=f'Have only implemented calling macros with plain arguments so far')
+                args = [E.PlainArg(E.Quasiquote(a.expr, a.expr.pos)) for a in call_expr.args]
+            elif isinstance(call_expr, E.ControlStructureExpression):
+                args = [E.Quasiquote(a, a.pos) for a in call_expr.components]
             e1, t1 = i.infer(E.CallExpression(func_expr, args, pos=call_expr.pos))
-            print('----- e1, t1', e1, t1)
-            s = solve({}, i.unifiers)
-            i.update_with_subst(s)
-            i.print_env()
-            print(e1, t1)
             try:
-                return self.visit(evaluator.evaluate(e1))
+                result = evaluator.evaluate(e1)
+                return self.visit(result)
             except utils.ApeEvaluationError as exc:
                 raise utils.ApeMacroError(pos=[ast.pos, call_expr.pos], msg='Error while evaluating macro') from exc
             raise utils.ApeNotImplementedError(pos=ast.pos, msg='Have not yet implemented support for macros that return things other than expressions')
 
         func_expr = E.FunctionExpression(
             params=ast.params,
-            body=ast.body,
+            body=self.visit(ast.body),
             return_annotation=None,
             pos=ast.pos)
 
         self.env[ast.name.name] = do_expand
         return E.NoneExpression(pos=ast.pos)
 
-def process(ast, input_text):
+def process(ast):
     try:
-        mp = MacroProcessor(input_text)
+        mp = MacroProcessor()
         return mp.visit(ast)
     except utils.ApeError as exc:
         if isinstance(exc, utils.ApeMacroError):

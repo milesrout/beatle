@@ -179,7 +179,7 @@ def overloadmethod(*, use_as_default=False, use_as_modifier=False, use_as_wrappe
                 elif error_function is not None:
                     raise error_function(self, x, *args, **kwds)
                 else:
-                    raise TypeError('no overload found for {}'.format(x.__class__))
+                    raise TypeError(f'no overload of {f} found for {x.__class__}')
 
             r = do_overload()
             for modifier in modifiers:

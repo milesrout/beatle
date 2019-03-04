@@ -15,7 +15,11 @@ import typechecker
 import evaluator
 
 PHASES = ['SCAN', 'PARSE', 'IMPORTS', 'MACROS', 'TYPES', 'EVAL']
-PROMPT = "\U0001F98D "
+PROMPT_APE = "\U0001F98D "
+PROMPT_LAM = "λ> "
+PROMPT_ARR = "> "
+PROMPT = PROMPT_ARR
+
 
 def add_phase_arguments(parser):
     phases = parser.add_argument_group(title='phases of compilation')
@@ -150,7 +154,7 @@ def imports(ast, args, input_text, regexp):
 
 
 def macros(ast, args, input_text):
-    ast = macroexpander.process(ast, input_text)
+    ast = macroexpander.process(ast)
 
     if args.verbose >= 1:
         print('macro-expanded ast:')
@@ -160,7 +164,7 @@ def macros(ast, args, input_text):
 
 
 def types(ast, args, input_text):
-    ast = typechecker.infer(ast, input_text)
+    ast = typechecker.infer(ast)
 
     if args.verbose >= 1:
         print('type-annotated ast:')
@@ -202,11 +206,18 @@ def cmd_repl(args):
     while True:
         try:
             input_text = input(PROMPT)
-        except (EOFError, KeyboardInterrupt):
+        except KeyboardInterrupt:
+            print()
+            continue
+        except EOFError:
             print()
             break
+        if input_text == "":
+            continue
         try:
-            print(process_phases(input_text, args, regexp=regexp, initial_production='single_input'))
+            result = process_phases(input_text, args, regexp=regexp, initial_production='single_input')
+            if result is not None:
+                print(result)
         except ApeError:
             pass
 

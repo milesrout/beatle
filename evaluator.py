@@ -5,6 +5,7 @@ from inspect import Signature, Parameter
 
 import utils
 import cstnodes as C
+import typechecker
 import typednodes as T
 
 class FunctionObject:
@@ -18,7 +19,7 @@ class FunctionObject:
         return super().__repr__()
 
     def __call__(self, *args, **kwds):
-        self.f(*args, **kwds)
+        return self.f(*args, **kwds)
 
 class Expression:
     def __init__(self, expr, pos):
@@ -48,10 +49,13 @@ def stringify(expr):
     return C.StringExpression([FakeToken('string', utils.to_sexpr(expr), pos=expr.pos)])
 
 def my_print(*args):
-    print('APE@@', *args)
+    print(*args)
 
 def my_str(x):
-    return 'APE::' + str(x)
+    return str(x)
+
+def my_eval(expr):
+    return evaluate(typechecker.infer(expr))
 
 DEFAULTS = {
     'stringify': stringify,
@@ -59,6 +63,7 @@ DEFAULTS = {
     'nothing': Nothing,
     'print': my_print,
     'str': my_str,
+    'eval': my_eval,
     'gensym': gensym,
     'RuntimeError': RuntimeError,
     'AssertionError': AssertionError,
@@ -117,7 +122,7 @@ class Evaluate:
         ...
 
     @assign.on(T.Id)
-    def assign_IdExpression(self, ast, value):
+    def assign_Id(self, ast, value):
         self.assign(ast.name, value)
 
     @assign.on(str)
@@ -126,8 +131,6 @@ class Evaluate:
 
     @utils.overloadmethod(use_as_default=True, error_function=eval_error)
     def eval(self, *args, **kwds):
-        #print('args', args)
-        #print('kwds', kwds)
         try:
             ast, pos = args
         except Exception as e:
@@ -138,6 +141,12 @@ class Evaluate:
             raise utils.ApeNotImplementedError(pos=None, msg=f'Cannot evaluate {ast.__class__.__name__}')
         raise utils.ApeNotImplementedError(pos=pos, msg=f'Cannot evaluate {ast.__class__.__name__}')
 
+    @eval.wrapper()
+    def eval_wrapper(self, old, new):
+        #if not isinstance(old, utils.Ast):
+        #    print('EVAL', old, new)
+        return new
+
     @eval.on(utils.Ast)
     def eval_Ast(self, ast):
         if type(ast.node) == tuple:
@@ -145,7 +154,6 @@ class Evaluate:
         return self.eval(ast.node, ast.pos)
 
     def recursive_eval(self, args, pos):
-        # print('args', type(args), args, pos)
         if isinstance(args, list):
             return list(self.recursive_eval(a, pos) for a in args)
         if type(args) == tuple:
@@ -157,7 +165,6 @@ class Evaluate:
         return args
 
     def unevaluate(self, value, pos):
-        # print('-----value', value, repr(value), type(value), value.__class__)
         if value is True:
             return C.TrueExpression(pos)
         if value is False:
@@ -179,7 +186,7 @@ class Evaluate:
         if type(value) is int:
             return C.IntExpression.from_decimal(value, pos)  # (FakeToken('decimal_int', value, pos))
         if type(value) is str:
-            return C.StringExpression.from_string(value, pos)  # ([FakeToken('string', value, pos)])
+            return C.StringExpression.from_string(FakeToken('string', value, pos), pos)  # ([FakeToken('string', value, pos)])
         if isinstance(value, utils.Expression):
             return value
         raise NotImplementedError(f'Have not implemented "{value!r}" in unevaluator')
@@ -209,8 +216,8 @@ class Evaluate:
     def eval_EmptyList(self, ast, pos):
         return []
 
-    @eval.on(T.ListLit)
-    def eval_ListLit(self, ast, pos):
+    @eval.on(T.List)
+    def eval_List(self, ast, pos):
         return [self.eval(expr) for expr in ast.exprs]
 
     @eval.on(T.LogicalAnd)
@@ -286,7 +293,8 @@ class Evaluate:
     def eval_Call(self, ast, pos):
         f = self.eval(ast.f)
         args = [self.eval(a) for a in ast.args]
-        return f(*args)
+        result = f(*args)
+        return result
 
     @eval.on(T.Tuple)
     def eval_Tuple(self, ast, pos):
@@ -311,6 +319,7 @@ class Evaluate:
     def eval_Assignment(self, ast, pos):
         v = self.eval(ast.expr)
         for t in ast.targets:
+            # print('ASSIGN', t, v)
             self.assign(t, v)
 
     @eval.on(T.Yield)
