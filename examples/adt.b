@@ -1,21 +1,21 @@
-macro until(arms):
-    if len(arms) == 1:
-        cond, body = arms[0]
-        \(while not $(cond[0]):
-              $@body)
-    if len(arms) == 2:
-        cond, body = arms[0]
-        [], alt = arms[1]
-        \(while not $(cond[0]):
-              $@body
-          else:
-              $@alt)
-    raise AssertionError('malformed \'unless\' statement')
+macro until(arm):
+    cond, body = arm
+    \(while not $(cond):
+          $body)
 
 control_structure (until <test>)
 
-type maybe[a] = !nothing | !something a
+x = 0
+until x == 10:
+    print(x)
+    x = x + 1
 
-x: any = !something !something !something 1
-x = (until (!nothing) == x:
-        (!something x) = x)
+
+type list[a] = !nil | !cons (a, list[a])
+
+x = !cons (1, !cons (2, !cons (3, !nil)))
+y = (until x == !nil:
+        (!cons (a, x)) = x
+        print('and', x, a))
+
+print('done', x, y)

@@ -7,6 +7,7 @@ import utils
 import cstnodes as C
 import typechecker
 import typednodes as T
+from environments import Namespace, Object, add_namespace
 
 class FunctionObject:
     def __init__(self, f, name=None):
@@ -20,6 +21,37 @@ class FunctionObject:
 
     def __call__(self, *args, **kwds):
         return self.f(*args, **kwds)
+
+class Tuple:
+    def __init__(self, t):
+        self.t = tuple(t)
+
+    def __repr__(self):
+        return f'Tuple({self.t!r})'
+
+    def __str__(self):
+        return '(' + ', '.join(map(str, self.t)) + ')'
+
+    def __eq__(self, other):
+        if isinstance(other, Tagged):
+            return self.tag == other.tag and self.value == other.value
+
+class Tagged:
+    def __init__(self, tag, value):
+        self.tag = tag
+        self.value = value
+
+    def __repr__(self):
+        return f'Tagged({self.tag!r}, {self.value!r})'
+
+    def __str__(self):
+        if self.value is None:
+            return f'!{self.tag}'
+        return f'!{self.tag} {self.value}'
+
+    def __eq__(self, other):
+        if isinstance(other, Tagged):
+            return self.tag == other.tag and self.value == other.value
 
 class Expression:
     def __init__(self, expr, pos):
@@ -57,10 +89,16 @@ def my_str(x):
 def my_eval(expr):
     return evaluate(typechecker.infer(expr))
 
+def my_len(x):
+    if isinstance(x, C.ControlStructureLinkExpression):
+        return len(x.components)
+    return len(x)
+
 DEFAULTS = {
     'stringify': stringify,
     'something': Something,
     'nothing': Nothing,
+    'len': my_len,
     'print': my_print,
     'str': my_str,
     'eval': my_eval,
@@ -74,7 +112,21 @@ class EVAL_Exception(BaseException):
         self.value = value
         self.pos = pos
 
-class EVAL_EarlyReturn(BaseException):
+class EVAL_ControlFlow(BaseException):
+    def __init__(self, pos):
+        self.pos = pos
+
+class EVAL_EarlyReturn(EVAL_ControlFlow):
+    def __init__(self, value, pos):
+        self.value = value
+        self.pos = pos
+
+class EVAL_Break(EVAL_ControlFlow):
+    def __init__(self, value, pos):
+        self.value = value
+        self.pos = pos
+
+class EVAL_Continue(EVAL_ControlFlow):
     def __init__(self, value, pos):
         self.value = value
         self.pos = pos
@@ -83,7 +135,7 @@ class Evaluate:
     """The evaluation context"""
 
     def __init__(self):
-        self.env = collections.ChainMap(DEFAULTS)
+        self.env = Namespace(DEFAULTS)
 
     def assign_error(self, ast, value):
         try:
@@ -111,15 +163,37 @@ class Evaluate:
             msg='Evaluate.eval: no overload found for {} [op={}]'.format(ast.__class__, op))
 
     @contextlib.contextmanager
+    def clean_subenv(self, new):
+        with self.env.clean_subenv():
+            self.env.update(new)
+            yield
+
+    @contextlib.contextmanager
     def subenv(self, new):
-        old = self.env
-        self.env = self.env.new_child(new)
-        yield
-        self.env = old
+        with self.env.subenv():
+            self.env.update(new)
+            yield
 
     @utils.overloadmethod(error_function=assign_error)
     def assign(self, ast, value):
         ...
+
+    @assign.on(T.Tuple)
+    def assign_Tuple(self, ast, value):
+        if isinstance(value, C.ControlStructureLinkExpression):
+            value = value.params + [value.body]
+        else:
+            value = value.t
+        for k, v in zip(ast.exprs, value):
+            self.assign(k, v)
+
+    @assign.on(T.Tagged)
+    def assign_Tagged(self, ast, value):
+        #print(ast, value)
+        if value.tag == ast.tag:
+            self.assign(ast.expr, value.value)
+        else:
+            raise EVAL_Exception(RuntimeError(f'Cannot assign !{value.tag} to !{ast.tag}'), pos=None)
 
     @assign.on(T.Id)
     def assign_Id(self, ast, value):
@@ -177,6 +251,8 @@ class Evaluate:
             return C.EmptyDictExpression(pos)
         if value == ():
             return C.EmptyTupleExpression(pos)
+        if isinstance(value, Tuple):
+            return self.unevaluate(value.t, pos)
         if type(value) is tuple:
             return C.TupleLiteral([self.unevaluate(v, pos) for v in value], pos)
         if type(value) is set:
@@ -191,6 +267,21 @@ class Evaluate:
             return value
         raise NotImplementedError(f'Have not implemented "{value!r}" in unevaluator')
 
+    def add_namespace(self, name, env):
+        environment = self.env
+        for part in name.parts[:-1]:
+            environment[part.name] = Namespace({})
+            environment = environment[part.name]
+        environment[name.parts[-1].name] = Namespace(env)
+
+    @eval.on(T.NamespaceDefn)
+    def eval_NamespaceDefn(self, ast, pos):
+        self.env.printout()
+        with self.clean_subenv({}):
+            self.eval(ast.expr)
+            env = self.env.env.maps[0]
+        add_namespace(self.env, ast.name, env)
+
     @eval.on(T.Quote)
     def eval_Quote(self, ast, pos):
         if isinstance(ast.cls, C.Expression):
@@ -198,10 +289,22 @@ class Evaluate:
         args = tuple(self.recursive_eval(a, pos) for a in ast.args)
         return ast.cls(*args)
 
+    @eval.on(T.Tagged)
+    def eval_Tagged(self, ast, pos):
+        if ast.expr is None:
+            return Tagged(ast.tag, None)
+        return Tagged(ast.tag, self.eval(ast.expr))
+
     @eval.on(T.Comparison)
     def eval_Comparison(self, ast, pos):
+        va = self.eval(ast.a)
+        vb = self.eval(ast.b)
+        #print('va', va, repr(va))
+        #print('vb', vb, repr(vb))
         if ast.op == 'eq':
-            return self.eval(ast.a) == self.eval(ast.b)
+            return va == vb
+        if ast.op == 'ne':
+            return not (va == vb)
         self.raise_op(ast, ast.op, pos)
 
     @eval.on(T.SetLit)
@@ -241,6 +344,21 @@ class Evaluate:
                 return self.eval(eib.body)
         if ast.else_branch is not None:
             return self.eval(ast.else_branch.body)
+        return None
+
+    @eval.on(T.While)
+    def eval_While(self, ast, pos):
+        try:
+            while self.eval(ast.cond):
+                try:
+                    self.eval(ast.body)
+                except EVAL_Continue:
+                    pass
+        except EVAL_Break:
+            pass
+        else:
+            if ast.alt is not None:
+                self.eval(ast.alt)
         return None
 
     @eval.on(T.Statements)
@@ -289,6 +407,14 @@ class Evaluate:
     def eval_Id(self, ast, pos):
         return self.env[ast.name]
 
+    @eval.on(T.Index)
+    def eval_Index(self, ast, pos):
+        value = self.eval(ast.expr)
+        for idx in ast.indices:
+            #print('value', value)
+            value = value[self.eval(idx)]
+        return value
+
     @eval.on(T.Call)
     def eval_Call(self, ast, pos):
         f = self.eval(ast.f)
@@ -303,7 +429,7 @@ class Evaluate:
             results.append(self.eval(expr))
         if len(results) == 1:
             return results[0]
-        return tuple(results)
+        return Tuple(results)
 
     @eval.on(T.Raise)
     def eval_Raise(self, ast, pos):

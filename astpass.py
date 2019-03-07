@@ -105,7 +105,7 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.TaggedExpression)
     def do_visit_TaggedExpression(self, ast):
-        return E.TaggedExpression, (self.visit(ast.tag), self.visit_maybe(ast.expr), ast.pos)
+        return E.TaggedExpression, (ast.tag, self.visit_maybe(ast.expr), ast.pos)
 
     @do_visit.on(E.Quasiquote)
     def do_visit_Quasiquote(self, ast):
@@ -495,11 +495,11 @@ class DeepAstPass(AstPass):
 
     @do_visit.on(E.TypeDisjunctionExpression)
     def do_visit_TypeDisjunctionExpression(self, ast):
-        return E.TypeDisjunctionExpression, (self.visit_all(ast.ts), ast.pos)
+        return E.TypeDisjunctionExpression, (self.visit_all(ast.exprs), ast.pos)
 
     @do_visit.on(E.TypeTaggedExpression)
     def do_visit_TypeTaggedExpression(self, ast):
-        return E.TypeTaggedExpression, (self.visit(ast.tag), self.visit_maybe(ast.t), ast.pos)
+        return E.TypeTaggedExpression, (ast.tag, self.visit_maybe(ast.t), ast.pos)
 
     @do_visit.on(E.TypeCallExpression)
     def do_visit_TypeCallExpression(self, ast):

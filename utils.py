@@ -3,10 +3,37 @@ import json
 import pprint
 import traceback
 
+from abc import ABCMeta, abstractmethod
 from itertools import tee, zip_longest
 
-class Type:
-    pass
+class Type(metaclass=ABCMeta):
+    @abstractmethod
+    def __repr__(self):
+        ...
+
+    @abstractmethod
+    def __str__(self):
+        ...
+
+    @abstractmethod
+    def apply(self, subst):
+        ...
+
+    @abstractmethod
+    def ftv(self):
+        ...
+
+    @property
+    def kind(self):
+        return self._kind
+
+    @abstractmethod
+    def __eq__(self, other):
+        ...
+
+    @abstractmethod
+    def __hash__(self):
+        ...
 
 class Expression:
     pass

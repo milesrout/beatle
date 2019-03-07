@@ -157,9 +157,11 @@ class MacroProcessor(DeepAstPass):
             if isinstance(call_expr, E.CallExpression):
                 if not all(isinstance(arg, E.PlainArg) for arg in call_expr.args):
                     raise utils.ApeNotImplementedError(pos=ast.pos, msg=f'Have only implemented calling macros with plain arguments so far')
-                args = [E.PlainArg(E.Quasiquote(a.expr, a.expr.pos)) for a in call_expr.args]
+                args = [E.PlainArg(E.Quasiquote(a.expr, a.expr.pos))
+                        for a in call_expr.args]
             elif isinstance(call_expr, E.ControlStructureExpression):
-                args = [E.Quasiquote(a, a.pos) for a in call_expr.components]
+                args = [E.PlainArg(E.Quasiquote(comp, comp.pos))
+                        for comp in call_expr.components]
             e1, t1 = i.infer(E.CallExpression(func_expr, args, pos=call_expr.pos))
             try:
                 result = evaluator.evaluate(e1)

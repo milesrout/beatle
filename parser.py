@@ -79,8 +79,9 @@ class Parser:
         self.brackets = 0
         self.linked_control_structures = collections.ChainMap(self.base_linked_control_structures)
         self.calculate_compound_stmt_tokens()
-        self.unary_tags = []
-        self.nullary_tags = []
+        # Prepopulate these with the built-in tags
+        self.unary_tags = ['cons']
+        self.nullary_tags = ['nil']
 
         class Error(ApeSyntaxError):
             def __init__(self, msg, pos):
@@ -404,29 +405,29 @@ class Parser:
             return self.forall_type_expr(pos)
         return E.TypeForallExpression([], self.type_expr(), pos=pos)
 
-    def type_expr(self):
+    def type_expr(self, *terminators):
         pos = self.current_token().pos
-        exprs = [self.type_tagged_expr()]
+        exprs = [self.type_tagged_expr('bit_or', *terminators)]
         while self.accept_next('bit_or'):
-            exprs.append(self.type_tagged_expr())
+            exprs.append(self.type_tagged_expr('bit_or', *terminators))
         if len(exprs) == 1:
             return exprs[0]
         return E.TypeDisjunctionExpression(exprs, pos)
 
-    def type_tagged_expr(self):
+    def type_tagged_expr(self, *terminators):
         pos = self.current_token().pos
         if self.accept_next('exclamation'):
-            tag = self.name()
-            if tag.name in self.nullary_tags:
+            tag = self.name().name
+            if tag in self.nullary_tags:
                 return E.TypeTaggedExpression(tag, None, pos)
-            if tag.name in self.unary_tags:
+            if tag in self.unary_tags:
                 return E.TypeTaggedExpression(tag, self.type_func_expr(), pos)
-            if self.accept('id'):
-                self.unary_tags.append(tag.name)
+            if not self.accept(*terminators):
+                self.unary_tags.append(tag)
                 t = self.type_func_expr()
                 return E.TypeTaggedExpression(tag, t, pos)
             else:
-                self.nullary_tags.append(tag.name)
+                self.nullary_tags.append(tag)
                 return E.TypeTaggedExpression(tag, None, pos)
         return self.type_func_expr()
 
@@ -435,13 +436,6 @@ class Parser:
         if self.accept_next('arrow'):
             return E.TypeFunctionExpression(expr, self.type_func_expr())
         return expr
-
-    def forall_type_expr(self, pos):
-        tvars = [self.name()]
-        while self.accept_next('comma'):
-            tvars.append(self.name())
-        self.expect('dot')
-        return E.TypeForallExpression(tvars, self.type_expr(), pos)
 
     def type_atom_expr(self):
         expr = self.type()
@@ -454,7 +448,7 @@ class Parser:
     def type(self):
         pos = self.current_token().pos
         if self.accept_next('lparen'):
-            exprs = [self.type_expr()]
+            exprs = [self.type_expr('comma', 'rparen')]
             if not self.accept('comma'):
                 self.expect('rparen')
                 return exprs[0]
@@ -467,6 +461,13 @@ class Parser:
         if self.accept_next('lbrack'):
             return self.type_list()
         return E.TypeNameExpression(self.dotted_name())
+
+    def forall_type_expr(self, pos):
+        tvars = [self.name()]
+        while self.accept_next('comma'):
+            tvars.append(self.name())
+        self.expect('dot')
+        return E.TypeForallExpression(tvars, self.type_expr(), pos)
 
     def new_type_expr(self):
         name = self.name()
@@ -610,7 +611,6 @@ class Parser:
         name = self.expect_get('id', *self.compound_stmt_tokens).string
         arm = [[]]
         while not self.accept_next('rparen'):
-            print('x', self.current_token())
             if self.accept('id'):
                 arm[-1].append(self.get_token().string)
             elif self.accept(*self.compound_stmt_tokens):
@@ -622,7 +622,6 @@ class Parser:
                 self.expect('gt')
             else:
                 self.raise_unexpected()
-            print('y', self.current_token())
         return name, arm
         raise ApeNotImplementedError(pos, 'control_structure directive')
 
@@ -849,6 +848,9 @@ class Parser:
             return self.vvarparams(pos)
         params = [self.dvfpdef()]
         while self.accept_next('comma'):
+            if self.accept_next('div'):
+                params.append(E.EndOfPosOnlyParams(pos))
+                continue
             if self.accept('id'):
                 params.append(self.dvfpdef())
                 continue
@@ -860,11 +862,9 @@ class Parser:
             if not self.accept('rparen'):
                 self.raise_unexpected()
             break
-        print('varparamslist', params)
         return params
 
     def vfpdef(self):
-        print('vfpdef')
         return self.name()
 
     def typedparamslist(self):
@@ -875,6 +875,9 @@ class Parser:
             return self.tvarparams(pos)
         params = [self.dtfpdef()]
         while self.accept_next('comma'):
+            if self.accept_next('div'):
+                params.append(E.EndOfPosOnlyParams(pos))
+                continue
             if self.accept('id'):
                 params.append(self.dtfpdef())
                 continue
@@ -1074,12 +1077,12 @@ class Parser:
     def quasiatom(self):
         pos = self.current_token().pos
         if self.accept_next('exclamation'):
-            print(self.nullary_tags, self.unary_tags)
-            tag = self.name()
-            if tag.name in self.nullary_tags:
+            tag = self.name().name
+            if tag in self.nullary_tags:
                 return E.TaggedExpression(tag, None, pos=pos)
             else:
-                assert tag.name in self.unary_tags
+                if tag not in self.unary_tags:
+                    raise ApeSyntaxError(msg=f'Unexpected and undefined tag in tag expression: {tag}', pos=pos)
                 return E.TaggedExpression(tag, self.quasiatom(), pos=pos)
         if self.accept_next('backslash'):
             return E.Quasiquote(self.quasiatom(), pos=pos)

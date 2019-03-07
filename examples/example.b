@@ -1,6 +1,7 @@
 a = 1
 b = 2
 c = 3
+y = x = True
 d = 'hello'
 h = set()
 i = {'a': 1, 'b': 2}

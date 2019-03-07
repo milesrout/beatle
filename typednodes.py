@@ -286,11 +286,8 @@ Call = namedtuple('Call', 'f args kwds')
 
 Index = namedtuple('Index', 'expr indices')
 
-#class IndexExpression(Expression):
-#    def __init__(self, atom, indices):
-#        self.atom = atom
-#        self.indices = indices
-#
+Tagged = namedtuple('Tagged', 'tag expr')
+
 #class AttrExpression(Expression):
 #    def __init__(self, atom, name):
 #        self.atom = atom

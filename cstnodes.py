@@ -645,8 +645,8 @@ class TypeForallExpression(Expression):
         self.pos = pos
 
 class TypeDisjunctionExpression(Expression):
-    def __init__(self, ts, pos):
-        self.ts = ts
+    def __init__(self, exprs, pos):
+        self.exprs = exprs
         self.pos = pos
 
 class TypeTaggedExpression(Expression):
@@ -709,6 +709,10 @@ class Param(Expression):
             return f'{self.name}={self.default}'
         else:
             return f'{self.name}: {self.annotation} = {self.default}'
+
+class EndOfPosOnlyParams(Expression):
+    def __init__(self, pos):
+        self.pos = pos
 
 class EndOfPosParams(Expression):
     def __init__(self, pos):

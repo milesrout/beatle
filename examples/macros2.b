@@ -7,10 +7,7 @@ macro ASSERT(e):
 
 a = 1
 b = 2
-ASSERT(a + b == 2)
-#try:
-#    ASSERT(a + b == 2)
-#except AssertionError as e:
-#    print('Error occurred:' + reason(e))
+
+ASSERT(a + b == 3)
 
 print('test')

@@ -16,11 +16,11 @@ macro iterate(comps):
     return \(do: pass)
 
 control_structure (iterate) \
-    (repeat <expr> !) \
-    (for <id> {(from <expr>) (upfrom <expr>) (downfrom <expr>) \
+    (repeat <expr>) \
+    (for <id>  (from <expr>) (upfrom <expr>) (downfrom <expr>) \
                (to <expr>) (upto <expr>) (downto <expr>) \
-	       (above <expr>) (below <expr>) (by <expr>)}* !) \
-    (foreach <exprlist> !)
+               (above <expr>) (below <expr>) (by <expr>)) \
+    (foreach <exprlist>)
     (for <exprlist> in <expr> (by <expr>)) \
     (for <exprlist> on <expr>) \
     (for <exprlist> on <expr> by <expr>)

@@ -1,6 +1,6 @@
 from collections import ChainMap
 import contextlib
-import itertools
+from itertools import chain, count
 
 import typednodes as T
 import cstnodes as E
@@ -8,8 +8,12 @@ from astpass import DeepAstPass
 from is_gen import is_gen
 from utils import (Type, Ast, ApeError, ApeSyntaxError, ApeInternalError,
                    ApeNotImplementedError, ApeTypeError, overloadmethod, unzip)
+from kinds import *
+from apetypes import *
+from environments import Object, Namespace, add_namespace
 
 #⭑: 2b51
+#★: 2605
 
 class ApeInferenceError(ApeTypeError):
     pass
@@ -17,609 +21,7 @@ class ApeInferenceError(ApeTypeError):
 class ApeUnificationError(ApeTypeError):
     pass
 
-class PrimitiveType(Type):
-    def apply(self, subst):
-        return self
-
-    def ftv(self):
-        return set()
-
-class ExpressionType(PrimitiveType):
-    def __str__(self):
-        return 'expression'
-Expression = ExpressionType()
-
-class BoolType(PrimitiveType):
-    def __str__(self):
-        return 'bool'
-Bool = BoolType()
-
-class FloatType(PrimitiveType):
-    def __str__(self):
-        return 'float'
-Float = FloatType()
-
-class IntType(PrimitiveType):
-    def __str__(self):
-        return 'int'
-Int = IntType()
-
-class ErrorType(PrimitiveType):
-    def __str__(self):
-        return 'error'
-Error = ErrorType()
-
-class StringType(PrimitiveType):
-    def __str__(self):
-        return 'string'
-String = StringType()
-
-class AnyType(PrimitiveType):
-    """This type exists to be unified with type variables that are required to
-    be unconstrained."""
-    def __str__(self):
-        return 'any'
-Any = AnyType()
-
-# class VoidType(PrimitiveType):
-#     """A function that returns Void does not return"""
-#     def __str__(self):
-#         return 'void'
-# Void = VoidType()
-
-# class CoroutineType(Type):
-#     def __init__(self, ytype, stype, rtype):
-#         self.ytype = ytype
-#         self.stype = stype
-#         self.rtype = rtype
-#
-#     def __str__(self):
-#         if self.stype == Unit:
-#             if self.rtype == Unit:
-#                 return f'generator[{self.ytype}]'
-#             else:
-#                 return f'generator[{self.ytype}, {self.rtype}]'
-#         else:
-#             if self.rtype == Unit:
-#                 return f'coroutine[{self.ytype}, {self.stype}]'
-#             else:
-#                 return f'coroutine[{self.ytype}, {self.stype}, {self.rtype}]'
-#
-#     def apply(self, subst):
-#         return CoroutineType(
-#             self.ytype.apply(subst),
-#             self.stype.apply(subst),
-#             self.rtype.apply(subst))
-#
-#     def ftv(self):
-#         return set.union(self.ytype.ftv(), self.stype.ftv(), self.rtype.ftv())
-#
-class HListType(Type):
-    def __init__(self, ts):
-        self.ts = ts
-
-    def __len__(self):
-        return len(self.ts)
-
-    def __getitem__(self, idx):
-        if isinstance(idx, slice):
-            return HListType(self.ts[idx])
-        return self.ts[idx]
-
-    def __str__(self):
-        return '<' + ', '.join(str(t) for t in self.ts) + '>'
-
-    def apply(self, subst):
-        return HListType([t.apply(subst) for t in self.ts])
-
-    def ftv(self):
-        if len(self.ts) == 0:
-            return set()
-        return set.union(*[t.ftv() for t in self.ts])
-
-class HDictType(Type):
-    """A 'dict' type that is a list of pairs (to maintain order)"""
-    def __init__(self, ts):
-        self.ts = ts
-
-    def __len__(self):
-        return len(self.ts)
-
-    @property
-    def types(self):
-        return [t for k, t in sorted(self.ts)]
-
-    @property
-    def names(self):
-        return list(sorted(k for k, t in self.ts))
-
-#     def __getitem__(self, idx):
-#         return self.ts[idx]
-#
-    def __str__(self):
-        return '<' + ', '.join(f'{k}={v}' for k, v in self.ts) + '>'
-
-    def apply(self, subst):
-        return HDictType([(k, v.apply(subst)) for k, v in self.ts])
-
-    def ftv(self):
-        if len(self.ts) == 0:
-            return set()
-        return set.union(*[v.ftv() for k, v in self.ts])
-
-class AnonParamType(Type):
-    def __init__(self, t, opt=False):
-        self.t = t
-        self.opt = opt
-
-    def __str__(self):
-        if self.opt:
-            return f'{self.t} (optional)'
-        else:
-            return f'{self.t}'
-
-    def apply(self, subst):
-        t = self.t.apply(subst)
-        if self.t is t:
-            return self
-        return AnonParamType(t, self.opt)
-
-    def ftv(self):
-        return self.t.ftv()
-
-class ParamType(Type):
-    def __init__(self, name, t, opt=False):
-        self.name = name
-        self.t = t
-        self.opt = opt
-
-    def __str__(self):
-        if self.opt:
-            return f'{self.name}?: {self.t}'
-        else:
-            return f'{self.name}: {self.t}'
-
-    def apply(self, subst):
-        t = self.t.apply(subst)
-        if self.t is t:
-            return self
-        return ParamType(self.name, t, self.opt)
-
-    def ftv(self):
-        return self.t.ftv()
-
-class ArgsType(Type):
-    def __init__(self, pts, kts):
-        self.pts = pts
-        self.kts = kts
-
-    @classmethod
-    def create(cls, *args, **kwds):
-        return cls(HListType(args), HDictType(kwds))
-
-    def __str__(self):
-        pts = [str(t) for t in self.pts.ts]
-        kts = [f'{k}={v}' for k, v in self.kts.ts]
-        return 'A(' + ', '.join(pts + kts) + ')'
-
-    def apply(self, subst):
-        return ArgsType(self.pts.apply(subst),
-                        self.kts.apply(subst))
-
-    def ftv(self):
-        return set.union(self.pts.ftv(), self.kts.ftv())
-
-class ParamsType(Type):
-    def __init__(self, pots, pkts, kots, args, kwds):
-        self.pots = pots
-        self.pkts = pkts
-        self.kots = kots
-        self.args = args
-        self.kwds = kwds
-
-    @classmethod
-    def unit(cls):
-        return cls.make([], [], [], Void, Void)
-
-    @classmethod
-    def varargs(cls, t):
-        return cls.make([], [], [], t, Void)
-
-    @classmethod
-    def pos_only(cls, ts):
-        return cls.make(ts, [], [], Void, Void)
-
-    @classmethod
-    def make(cls, pots, pkts, kots, args, kwds):
-        return cls(HListType(pots), HListType(pkts), HListType(kots), args, kwds)
-
-    def __str__(self):
-        types = []
-        if self.pots.ts != []:
-            types.extend([str(x) for x in self.pots.ts])
-            types.append('/')
-        types.extend([str(x) for x in self.pkts.ts])
-        if self.kots.ts != []:
-            types.append('*')
-            types.extend([str(x) for x in self.kots.ts])
-        if self.args != Void:
-            types.append('*' + str(self.args))
-        if self.kwds != Void:
-            types.append('**' + str(self.kwds))
-        return 'P(' + ', '.join(types) + ')'
-
-    def apply(self, subst):
-        return ParamsType(
-            self.pots.apply(subst),  # [t.apply(subst) for t in self.pots],
-            self.pkts.apply(subst),  # [t.apply(subst) for t in self.pkts],
-            self.kots.apply(subst),  # [t.apply(subst) for t in self.kots],
-            self.args.apply(subst),
-            self.kwds.apply(subst))
-
-    def ftv(self):
-        return set.union(
-            self.pots.ftv(),  # *[t.ftv() for t in self.pots],
-            self.pkts.ftv(),  # *[t.ftv() for t in self.pkts],
-            self.kots.ftv(),  # *[t.ftv() for t in self.kots],
-            self.args.ftv(),
-            self.kwds.ftv())
-
-    def __eq__(self, other):
-        if isinstance(other, ParamsType):
-            return (self.pots == other.pots and
-                    self.pkts == other.pkts and
-                    self.kots == other.kots and
-                    self.args == other.args and
-                    self.kwds == other.kwds)
-
-class EitherType(Type):
-    def __init__(self, ts):
-        self.ts = ts
-
-    def __str__(self):
-        if len(self.ts) == 0:
-            return 'void'
-        if len(self.ts) == 1:
-            return str(self.ts[0])
-        return 'E(' + ' | '.join(map(str, self.ts)) + ')'
-
-    def apply(self, subst):
-        return EitherType([t.apply(subst) for t in self.ts])
-
-    def ftv(self):
-        if len(self.ts) == 0:
-            return set()
-        return set.union(*[t.ftv() for t in self.ts])
-
-    def __eq__(self, other):
-        if isinstance(other, EitherType):
-            if len(self.ts) == len(other.ts):
-                return all(t == s for t, s in zip(self.ts, other.ts))
-        return False
-Void = EitherType([])
-
-
-class TupleType(Type):
-    def __init__(self, ts):
-        self.ts = ts
-
-    def __str__(self):
-        if len(self.ts) == 0:
-            return 'unit'
-        if len(self.ts) == 1:
-            return str(self.ts[0])
-        return 'T(' + ' ⨯ '.join(map(str, self.ts)) + ')'
-
-    def apply(self, subst):
-        return TupleType([t.apply(subst) for t in self.ts])
-
-    def ftv(self):
-        if len(self.ts) == 0:
-            return set()
-        return set.union(*[t.ftv() for t in self.ts])
-
-    def __eq__(self, other):
-        if isinstance(other, TupleType):
-            if len(self.ts) == len(other.ts):
-                return all(t == s for t, s in zip(self.ts, other.ts))
-        return False
-Unit = TupleType([])
-
-class MaybeType(Type):
-    def __init__(self, t):
-        self.t = t
-
-    def __str__(self):
-        return f'{self.t}?'
-
-    def apply(self, subst):
-        return MaybeType(self.t.apply(subst))
-
-    def ftv(self):
-        return self.t.ftv()
-
-    def __eq__(self, other):
-        if isinstance(other, MaybeType):
-            return self.t == other.t
-        return False
-
-class TypeVariable(Type):
-    def __init__(self, tvar):
-        self.tvar = tvar
-
-    def __str__(self):
-        return self.tvar
-
-    def apply(self, subst):
-        return subst.get(self.tvar, self)
-
-    def ftv(self):
-        return {self.tvar}
-
-class TypeCall(Type):
-    def __init__(self, con, ts):
-        self.con = con
-        self.ts = ts
-
-    def __str__(self):
-        params = ', '.join(map(str, self.ts))
-        return f'{self.con}[{params}]'
-
-    def apply(self, subst):
-        return TypeCall(self.con, [t.apply(subst) for t in self.ts])
-
-    def ftv(self):
-        if len(self.ts) == 0:
-            return self.con.ftv()
-        return set.union(self.con.ftv(), *[t.ftv() for t in self.ts])
-
-    def __eq__(self, other):
-        if isinstance(other, TypeCall):
-            if self.con == other.con:
-                if len(self.ts) == len(other.ts):
-                    return all(t == s for t, s in zip(self.ts, other.ts))
-        return False
-
-class ListType(Type):
-    def __init__(self, t):
-        self.t = t
-
-    def __str__(self):
-        return f'[{self.t}]'
-
-    def apply(self, subst):
-        return ListType(self.t.apply(subst))
-
-    def ftv(self):
-        return self.t.ftv()
-
-    def __eq__(self, other):
-        if isinstance(other, ListType):
-            return self.t == other.t
-        return False
-
-    def kind(self):
-        return Star
-
-class SetType(Type):
-    def __init__(self, t):
-        self.t = t
-
-    def __str__(self):
-        return f'{{{self.t}}}'
-
-    def apply(self, subst):
-        return SetType(self.t.apply(subst))
-
-    def ftv(self):
-        return self.t.ftv()
-
-    def __eq__(self, other):
-        if isinstance(other, SetType):
-            return self.t == other.t
-        return False
-
-    def kind(self):
-        return Star
-
-class DictType(Type):
-    def __init__(self, k, v):
-        self.k = k
-        self.v = v
-
-    def __str__(self):
-        return f'{{{self.k}: {self.v}}}'
-
-    def apply(self, subst):
-        return DictType(self.k.apply(subst), self.v.apply(subst))
-
-    def ftv(self):
-        return set.union(self.k.ftv(), self.v.ftv())
-
-    def __eq__(self, other):
-        if isinstance(other, DictType):
-            return self.k == other.k and self.v == other.v
-        return False
-
-    def kind(self):
-        return Star
-
-class SignatureType(Type):
-    def __init__(self, types, names):
-        self.types = types
-        self.names = names
-
-    def __str__(self):
-        types = '\n'.join(f'\t\t\t\t{k}:{v}' for k, v in self.types.items())
-        names = '\n'.join(f'\t\t\t\t{k}:{v}' for k, v in self.names.items())
-        return f'signature(\n{types}\n{names}\n\t\t\t)'
-
-    def kind(self):
-        return Star
-
-class FunctionType(Type):
-    def __init__(self, p, r):
-        if not isinstance(p, (TypeVariable, AnyType, ArgsType, ParamsType)):
-            print(p)
-            raise NotImplementedError
-        self.p = p
-        self.r = r
-
-    def __str__(self):
-        return f'({self.p} → {self.r})'
-
-    def apply(self, subst):
-        return FunctionType(self.p.apply(subst), self.r.apply(subst))
-
-    def ftv(self):
-        return set.union(self.p.ftv(), self.r.ftv())
-
-    def kind(self):
-        return Star
-
-class TypeScheme:
-    def __init__(self, tvars, t):
-        self.tvars = tvars
-        self.t = t
-
-    def __str__(self):
-        v = ','.join(map(str, self.tvars))
-        return f'∀{v}.{self.t}'
-
-    def apply(self, subst):
-        s = {k: v for k, v in subst.items() if k not in self.tvars}
-        return TypeScheme(self.tvars, self.t.apply(s))
-
-    def ftv(self):
-        return self.t.ftv() - set(self.tvars)
-
-class Nullary:
-    def __init__(self, t):
-        self.t = t
-
-    def __str__(self):
-        return str(self.t)
-
-    def apply(self, subst):
-        return Nullary(self.t.apply(subst))
-
-    def ftv(self):
-        return self.t.ftv()
-
-class TypeConstructor:
-    def __init__(self, name, kind):
-        self.name = name
-        self.kind = kind
-
-    def __str__(self):
-        return f'{self.name}'
-
-    def apply(self, subst):
-        return self
-
-    def ftv(self):
-        return set()
-
-class Kind:
-    pass
-
-class KindConstant(Kind):
-    def __init__(self, name):
-        self.name = name
-
-    def __str__(self):
-        return self.name
-
-    def apply(self, subst):
-        return self
-
-    def fkv(self):
-        return set()
-Star = KindConstant('⭑')
-
-class KindVariable(Kind):
-    def __init__(self, name):
-        self.name = name
-
-    def __str__(self):
-        return self.name
-
-    def apply(self, subst):
-        return subst.get(self.name, self)
-
-    def fkv(self):
-        return {self.name}
-
-class ArrowKind(Kind):
-    def __init__(self, ks, k):
-        self.ks = ks
-        self.k = k
-
-    def __str__(self):
-        ks = ', '.join(map(str, self.ks))
-        if len(self.ks) == 1:
-            return f'({ks} → {self.k})'
-        return f'(({ks}) → {self.k})'
-
-    def apply(self, subst):
-        ks = [k.apply(subst) for k in self.ks]
-        return ArrowKind(ks, self.k.apply(subst))
-
-    def fkv(self):
-        return set.union(self.k.fkv(), *[k.fkv() for k in self.ks])
-
-printout_depth = 0
-
-@contextlib.contextmanager
-def depth():
-    global printout_depth
-    printout_depth += 1
-    yield
-    printout_depth -= 1
-
-def printout(*args, **kwds):
-    print(printout_depth * ' ', *args, **kwds)
-
-class Namespace:
-    def __init__(self, env):
-        if isinstance(env, Namespace):
-            raise
-        self.env = env
-
-    def printout(self):
-        for k, v in self.env.items():
-            if isinstance(v, Object):
-                printout(f'{k!s:<15} {v.value!s}')
-            elif isinstance(v, Namespace):
-                printout(f'{k!s}:')
-                with depth():
-                    v.printout()
-            else:
-                printout(f'{k!s:<15} {v!s}')
-
-    def __getitem__(self, key):
-        if isinstance(key, E.DottedNameExpression):
-            raise
-        return self.env[key]
-
-    def __setitem__(self, key, value):
-        if isinstance(key, E.DottedNameExpression):
-            raise
-        self.env[key] = value
-
-    def get(self, key, alt=None):
-        if isinstance(key, E.DottedNameExpression):
-            raise
-        return self.env.get(key, alt)
-
-    def update(self, others):
-        self.env.update(others)
-
-class Object:
-    def __init__(self, value):
-        self.value = value
-
-def pos_only(*args):
+def pos_only_params(*args):
     return ParamsType.pos_only(
         [AnonParamType(a) for a in args])
 
@@ -627,17 +29,15 @@ tY = TypeVariable('y')
 tS = TypeVariable('s')
 tR = TypeVariable('r')
 
-UnaryKind = ArrowKind((Star,), Star)
-TernaryKind = ArrowKind((Star, Star, Star), Star)
-
 BASE_TYPE_ENVIRONMENT = {
-    'generator': Object(TypeConstructor('generator', TernaryKind)),
-    'coroutine': Object(TypeConstructor('coroutine', TernaryKind)),
-    'list':  Object(TypeConstructor('list', UnaryKind)),
+    'generator': Object(AbstractTypeConstructor(TernaryKind)),
+    'coroutine': Object(AbstractTypeConstructor(TernaryKind)),
+    #'list':  Object(AbstractTypeConstructor(UnaryKind)),
     'int':   Object(Nullary(Int)),
     'float': Object(Nullary(Float)),
     'bool':  Object(Nullary(Bool)),
     'error': Object(Nullary(Error)),
+    'any':   Object(Nullary(Any)),
 }
 
 def CoroutineType(y, s, r):
@@ -645,6 +45,10 @@ def CoroutineType(y, s, r):
 
 def GeneratorType(y, s, r):
     return TypeCall(BASE_TYPE_ENVIRONMENT['generator'].value, (y, s, r))
+
+def IterationResultType(y, s, r):
+    return DisjunctionType([TaggedType('return', r),
+                            TaggedType('yield', TupleType([y, CoroutineType(y, s, r)]))])
 
 BASE_ENVIRONMENT = {
     # Want to add 'next', 'send', 'throw', etc. for generators.
@@ -655,41 +59,41 @@ BASE_ENVIRONMENT = {
     # send:   (s, Coroutine(y,s,r)) ~> r + (y, Coroutine(y,s,r)),
     # where ~> is the LinearArrowType, Iterable(y,r) = Generator(y,(),r),
     # and Iterator(y,r) = Coroutine(y,(),r).
-    'eval': Object(TypeScheme(['a'], FunctionType(
-        pos_only(Expression),
-        TypeVariable('a')))),
     'iter': Object(TypeScheme(['y', 'r'], FunctionType(
-        pos_only(GeneratorType(tY, Unit, tR)),
-        EitherType([tR, TupleType([tY, CoroutineType(tY, Unit, tR)])])))),
+        pos_only_params(GeneratorType(tY, Unit, tR)),
+        IterationResultType(tY, Unit, tR)))),
     'next': Object(TypeScheme(['y', 'r'], FunctionType(
-        pos_only(CoroutineType(tY, Unit, tR)),
-        EitherType([tR, TupleType([tY, CoroutineType(tY, Unit, tR)])])))),
+        pos_only_params(CoroutineType(tY, Unit, tR)),
+        IterationResultType(tY, Unit, tR)))),
     'start': Object(TypeScheme(['y', 's', 'r'], FunctionType(
-        pos_only(GeneratorType(tY, tS, tR)),
-        EitherType([tR, TupleType([tY, CoroutineType(tY, tS, tR)])])))),
+        pos_only_params(GeneratorType(tY, tS, tR)),
+        IterationResultType(tY, tS, tR)))),
     'send': Object(TypeScheme(['y', 's', 'r'], FunctionType(
-        pos_only(tS, CoroutineType(tY, tS, tR)),
-        EitherType([tR, TupleType([tY, CoroutineType(tY, tS, tR)])])))),
-    'litstr':    Object(TypeScheme([],    FunctionType(pos_only(String), Expression))),
-    'stringify': Object(TypeScheme([],    FunctionType(pos_only(Expression), Expression))),
+        pos_only_params(tS, CoroutineType(tY, tS, tR)),
+        IterationResultType(tY, tS, tR)))),
+    'litstr':    Object(TypeScheme([],    FunctionType(pos_only_params(String), Expression))),
+    'stringify': Object(TypeScheme([],    FunctionType(pos_only_params(Expression), Expression))),
     'gensym':    Object(TypeScheme([],    FunctionType(ParamsType.unit(), String))),
-    'something': Object(TypeScheme(['a'], FunctionType(pos_only(TypeVariable('a')), MaybeType(TypeVariable('a'))))),
+    'something': Object(TypeScheme(['a'], FunctionType(pos_only_params(TypeVariable('a')), MaybeType(TypeVariable('a'))))),
     'nothing':   Object(TypeScheme(['a'], MaybeType(TypeVariable('a')))),
     'print':     Object(TypeScheme([],    FunctionType(ParamsType.varargs(ListType(String)), Unit))),
-    'str':       Object(TypeScheme(['a'], FunctionType(pos_only(TypeVariable('a')), String))),
+    'str':       Object(TypeScheme(['a'], FunctionType(pos_only_params(TypeVariable('a')), String))),
     'set':       Object(TypeScheme(['a'], FunctionType(ParamsType.unit(), SetType(TypeVariable('a'))))),
     'len':       Object(TypeScheme(['a'], FunctionType(
-        pos_only(ListType(TypeVariable('a'))),
+        pos_only_params(ListType(TypeVariable('a'))),
         Int))),
     'cons':      Object(TypeScheme(['a'], FunctionType(
-        pos_only(TypeVariable('a'), ListType(TypeVariable('a'))),
+        pos_only_params(TypeVariable('a'), ListType(TypeVariable('a'))),
         ListType(TypeVariable('a'))))),
-    'RuntimeError': Object(TypeScheme([], FunctionType(pos_only(String), Error))),
-    'AssertionError': Object(TypeScheme([], FunctionType(pos_only(String), Error))),
+    'RuntimeError': Object(TypeScheme([], FunctionType(pos_only_params(String), Error))),
+    'AssertionError': Object(TypeScheme([], FunctionType(pos_only_params(String), Error))),
+    'eval': Object(TypeScheme(['a'], FunctionType(
+        pos_only_params(Expression),
+        TypeVariable('a')))),
 }
 
-generic_unary_op = TypeScheme(['a'], FunctionType(ParamsType.pos_only([ParamType('x', TypeVariable('a'))]), TypeVariable('a')))
-generic_binary_op = TypeScheme(['a'], FunctionType(ParamsType.pos_only([TypeVariable('a'), TypeVariable('a')]), TypeVariable('a')))
+generic_unary_op = TypeScheme(['a'], FunctionType(pos_only_params(TypeVariable('a')), TypeVariable('a')))
+generic_binary_op = TypeScheme(['a'], FunctionType(pos_only_params(TypeVariable('a'), TypeVariable('a')), TypeVariable('a')))
 
 UNARY_OPERATORS = {
     'plus':  generic_unary_op,
@@ -708,14 +112,15 @@ BINARY_OPERATORS = {
 
 class TypeChecker:
     def __init__(self):
-        self.env = Namespace(ChainMap(BASE_ENVIRONMENT).new_child())
-        self.type_env = Namespace(ChainMap(BASE_TYPE_ENVIRONMENT).new_child())
+        self.env = Namespace(BASE_ENVIRONMENT)
+        self.type_env = Namespace(BASE_TYPE_ENVIRONMENT)
         self.subst = {}
         self.unifiers = []
         self.kind_unifiers = []
-        self.fresh_vars = (f'a{i}' for i in itertools.count(1))
-        self.fresh_kind_vars = (f'k{i}' for i in itertools.count(1))
+        self.fresh_vars = (f'a{i}' for i in count(1))
+        self.fresh_kind_vars = (f'k{i}' for i in count(1))
         self.asts = []
+        self.tags = {}
 
         class Types:
             """A collection of the different types an expression can have
@@ -780,6 +185,17 @@ class TypeChecker:
 
     ######
 
+    def clean_vars(self, disallowed):
+        return (TypeVariable(x)
+                for x in chain('abcdefghijklmnopqrstuvwxyz', (f'a{i}' for i in count(1)))
+                if x not in disallowed)
+
+    def clean_fresh(self, disallowed):
+        return next(self.clean_vars(disallowed))
+
+    def free_vars_in_env(self):
+        return set.union(*(ty.value.ftv() for ty in self.env.env.values() if isinstance(ty, Object)), self.type_env.env.keys())
+
     def fresh(self):
         return TypeVariable(next(self.fresh_vars))
 
@@ -790,12 +206,14 @@ class TypeChecker:
         return scm.t.apply({tvar: self.fresh() for tvar in scm.tvars})
 
     def generalise(self, t):
-        ftv = t.ftv() - set.union(*(ty.value.ftv() for ty in self.env.env.values()))
-        return TypeScheme(list(ftv), t)
+        existing_types = self.free_vars_in_env()
+        ftv = t.ftv() - existing_types
+        subst = dict(zip(ftv, [self.fresh() for tv in range(len(ftv))]))
+        tt = t.apply(subst)
+        return TypeScheme([subst[tvar].tvar for tvar in ftv], tt)
 
     def lookup_name(self, name, pos):
         scm = self.env.get(name, None)
-        # print('SCM', name, scm.value)
         if scm is None:
             raise ApeTypeError(msg=f'Unbound variable: {name}', pos=pos)
         return self.instantiate(scm.value)
@@ -817,36 +235,47 @@ class TypeChecker:
 
     def solve(self):
         self.subst = solve(self.subst, self.unifiers)
-        self.env.update({name: Object(scm.value.apply(self.subst)) for name, scm in self.env.env.items()})
+        self.env.update({name: Object(scm.value.apply(self.subst)) for name, scm in self.env.env.items() if isinstance(scm, Object)})
         return self.subst
 
     def add_name_ungeneralised(self, name, t):
         subst = self.solve()
-        # print('ANU', name, t.apply(subst))
         self.env[name] = Object(TypeScheme([], t.apply(subst)))
+
+    def add_type_name(self, name, tc):
+        """Add a type constructor (possibly nullary) to the type environment"""
+        self.type_env[name] = Object(tc)
 
     def add_name(self, name, t):
         subst = self.solve()
-        # print('AN ', name, t.apply(subst))
         self.env[name] = Object(self.generalise(t.apply(subst)))
 
     def add_type_namespace(self, name, env):
-        environment = self.type_env
-        for part in name.parts[:-1]:
-            environment[part.name] = Namespace({})
-            environment = environment[part.name]
-        environment[name.parts[-1].name] = Namespace(env)
+        add_namespace(self.type_env, name, env)
 
     def add_namespace(self, name, env):
-        environment = self.env
-        for part in name.parts[:-1]:
-            environment[part.name] = Namespace({})
-            environment = environment[part.name]
-        environment[name.parts[-1].name] = Namespace(env)
+        add_namespace(self.env, name, env)
+
+    #def add_type_namespace(self, name, env):
+    #    environment = self.type_env
+    #    for part in name.parts[:-1]:
+    #        environment[part.name] = Namespace({})
+    #        environment = environment[part.name]
+    #    environment[name.parts[-1].name] = Namespace(env)
+
+    #def add_namespace(self, name, env):
+    #    environment = self.env
+    #    for part in name.parts[:-1]:
+    #        environment[part.name] = Namespace({})
+    #        environment = environment[part.name]
+    #    environment[name.parts[-1].name] = Namespace(env)
 
     def print_env(self):
         print('self.type_env:')
         self.type_env.printout()
+        print('self.tags:')
+        for k, v in self.tags.items():
+            print(k, v)
         print('self.env:')
         self.env.printout()
 
@@ -868,20 +297,30 @@ class TypeChecker:
 
     @contextlib.contextmanager
     def clean_subenv(self):
-        old, oldT = self.env, self.type_env
-        self.env = Namespace(ChainMap(BASE_ENVIRONMENT).new_child())
-        self.type_env = Namespace(ChainMap(BASE_TYPE_ENVIRONMENT).new_child())
-        yield
-        self.env, self.type_env = old, oldT
+        with self.type_env.clean_subenv(), self.env.clean_subenv():
+            yield
 
     @contextlib.contextmanager
     def subenv(self):
-        old, oldT = self.env.env, self.type_env.env
-        self.env.env = self.env.env.new_child()
-        self.type_env.env = self.type_env.env.new_child()
-        yield
-        self.env.env, self.type_env.env = old, oldT
+        with self.type_env.subenv(), self.env.subenv():
+            yield
 
+#    @contextlib.contextmanager
+#    def clean_subenv(self):
+#        old, oldT = self.env, self.type_env
+#        self.env = Namespace(ChainMap(BASE_ENVIRONMENT).new_child())
+#        self.type_env = Namespace(ChainMap(BASE_TYPE_ENVIRONMENT).new_child())
+#        yield
+#        self.env, self.type_env = old, oldT
+#
+#    @contextlib.contextmanager
+#    def subenv(self):
+#        old, oldT = self.env.env, self.type_env.env
+#        self.env.env = self.env.env.new_child()
+#        self.type_env.env = self.type_env.env.new_child()
+#        yield
+#        self.env.env, self.type_env.env = old, oldT
+#
     def unify_others(self, T1, T2, pos):
         self.unify(T1.rtype, T2.rtype, pos)
         self.unify(T1.ytype, T2.ytype, pos)
@@ -896,6 +335,14 @@ class TypeChecker:
         self.unify(T1.ctype, T2.ctype, pos)
 
     def unify(self, t1, t2, pos):
+        if isinstance(t1, self.Types):
+            raise NotImplementedError
+        if isinstance(t2, self.Types):
+            raise NotImplementedError
+        if isinstance(t1, TypeConstructor):
+            raise NotImplementedError
+        if isinstance(t2, TypeConstructor):
+            raise NotImplementedError
         if t1 is not Any and t2 is not Any:
             self.unifiers.append(Constraint(t1, t2, pos))
 
@@ -971,9 +418,37 @@ class TypeChecker:
     def infer_type_TypeTupleExpression(self, ast):
         return TupleType([self.infer_type(expr) for expr in ast.exprs])
 
+    @infer_type.on(E.TypeTaggedExpression)
+    def infer_type_TypeTaggedExpression(self, ast):
+        if ast.t is None:
+            t = Unit
+        else:
+            t = self.infer_type(ast.t)
+        #print('TAGGED', ast.tag, 'TYPE', t)
+        return TaggedType(ast.tag, t)
+        #if ast.tag in self.tags:
+        #    if self.tags[ast.tag] is not t:
+        #        raise ApeTypeError(pos=ast.pos, msg=f'Cannot redefine tag \'{ast.tag}\': already represents {self.tags[ast.tag]}, not {t}')
+        #else:
+        #    g = TypeScheme([], t)
+        #    self.tags[ast.tag] = g
+        #if ast.tag in self.tags:
+        #    if self.tags[ast.tag] is not t:
+        #        raise ApeTypeError(pos=ast.pos, msg=f'Cannot redefine tag \'{ast.tag}\': already represents {self.tags[ast.tag]}, not {t}')
+        #else:
+        #    g = self.generalise(t)
+        #    print('g', g, 't', t)
+        #    print('g', repr(g), 't', repr(t))
+        #    self.tags[ast.tag] = g
+        #return TaggedType(ast.tag, t)
+
+    @infer_type.on(E.TypeDisjunctionExpression)
+    def infer_type_TypeDisjunctionExpression(self, ast):
+        return DisjunctionType([self.infer_type(expr) for expr in ast.exprs])
+
     @infer_type.on(E.TypeFunctionExpression)
     def infer_type_TypeFunctionExpression(self, ast):
-        return FunctionType(pos_only(self.infer_type(ast.t1)), self.infer_type(ast.t2))
+        return FunctionType(pos_only_params(self.infer_type(ast.t1)), self.infer_type(ast.t2))
 
     @infer_type.on(E.TypeMaybeExpression)
     def infer_type_TypeMaybeExpression(self, ast):
@@ -983,6 +458,7 @@ class TypeChecker:
     @infer_type.on(E.TypeCallExpression)
     def infer_type_TypeCallExpression(self, ast):
         tc = self.infer_type(ast.atom)
+        #print('TC', tc, repr(tc))
         ts = [self.infer_type(t) for t in ast.args]
         return TypeCall(tc, ts)
 
@@ -1043,7 +519,7 @@ class TypeChecker:
             if isinstance(expr, E.StarExpr):
                 es, ts = self.infer(expr.expr)
                 self.unify_all(tS, ts, expr.pos)
-                exprs.append(T.Star(es, expr.pos))
+                exprs.append(T.Star(es))
             else:
                 ev, tv = self.infer(expr)
                 self.unify_all(tV, tv, expr.pos)
@@ -1064,11 +540,11 @@ class TypeChecker:
                 self.unify_all(tK, tk, expr.key_expr.pos)
                 ev, tv = self.infer(expr.value_expr)
                 self.unify_all(tV, tv, expr.value_expr.pos)
-                exprs.append(T.DictKV(ek, ev, expr.pos))
+                exprs.append(T.DictKV(ek, ev))
             elif isinstance(expr, E.StarStarExpr):
                 ee, te = self.infer(expr.expr)
                 self.unify_all(tD, te, expr.expr.pos)
-                exprs.append(T.StarStar(ee, expr.pos))
+                exprs.append(T.StarStar(ee))
             else:
                 raise ApeInternalError(pos=ast.pos, msg=f'Unexpected {expr.__class__.__name__} in {ast.__class__.__name__}')
 
@@ -1085,13 +561,13 @@ class TypeChecker:
             if isinstance(expr, E.StarExpr):
                 el, tl = self.infer(expr.expr)
                 self.unify_all(tL, tl, expr.pos)
-                exprs.append(T.Star(el, expr.pos))
+                exprs.append(T.Star(el))
             else:
                 ev, tv = self.infer(expr)
                 self.unify_all(tV, tv, [ast.pos, expr.pos])
                 exprs.append(ev)
 
-        return T.ListLit(exprs), tL
+        return T.List(exprs), tL
 
     @infer.on(E.TupleLiteral)
     def infer_TupleLiteral(self, ast):
@@ -1123,7 +599,6 @@ class TypeChecker:
 
     @infer.on(E.StringExpression)
     def infer_StringExpression(self, ast):
-        # print('ISE', ast.unparsed)
         return T.String(''.join(a.string for a in ast.unparsed)), self.Types(String)
 
     @infer.on(E.FloatExpression)
@@ -1163,8 +638,6 @@ class TypeChecker:
         ec, tc = self.infer(ast.cond)
         self.unify(tc.vtype, Bool, ast.cond.pos)
         self.unify_others(tc, tt, [ast.cond.pos, ast.pos])
-
-        #print(ec)
 
         eb, tb = self.infer(ast.body)
         self.unify(tb.vtype, Unit, ast.pos)
@@ -1222,7 +695,7 @@ class TypeChecker:
         self.unify_others(t1, t2, [ast.left.pos, ast.right.pos])
 
         tv = self.fresh()
-        u1 = FunctionType(pos_only(t1.vtype, t2.vtype), tv)
+        u1 = FunctionType(ArgsType.create(t1.vtype, t2.vtype), tv)
         u2 = self.instantiate(BINARY_OPERATORS[ast.op])
         self.unify(u1, u2, [ast.left.pos, ast.right.pos])
 
@@ -1304,9 +777,6 @@ class TypeChecker:
                       HDictType([(k, t.vtype) for k, t in tks]))
         tv = self.fresh()
         self.unify(tf.vtype, FunctionType(tt, tv), ast.pos)
-        #print('tt', tt)
-        #print('tv', tv)
-        #print('tf', tf)
         return T.Call(ef, eps, eks), tf.but(tv)
 
     @infer.on(E.Comparison)
@@ -1344,22 +814,30 @@ class TypeChecker:
 
         return T.YieldFrom(ef), t
 
-        # yield from x should opaquely forward things sent to *the current function* on to *whatever we're yielding from*.
-        # and forwarding things yielded by *whatever we're yielding from* to *whatever we're yielding to*.
-        # stype=stype
-        # ytype=ytype
-        #     ?=?
-
     @infer.on(E.YieldExpression)
     def infer_YieldExpression(self, ast):
         e, t = self.infer(ast.expr)
         self.unify(t.vtype, t.ytype, ast.pos)
         return T.Yield(e), t.but(t.stype)
 
-    @infer.on(E.AnnotatedAssignment)
-    def infer_AnnotatedAssignment(self, ast):
-        t, k = self.parse_type(ast.annotation)
-        raise
+    @infer.on(E.TaggedExpression)
+    def infer_TaggedExpression(self, ast):
+        # e.g. nil : ∀a.((unit/) -> list[a]), but instantiated
+        tft = self.Types(self.instantiate(self.tags[ast.tag]))
+
+        tv = self.fresh()
+        tr = self.Types(self.fresh())
+
+        # e.g. (a/) -> b
+        self.unify(tft.vtype, FunctionType(ArgsType.create(tv), tr.vtype), ast.pos)
+
+        if ast.expr is None:
+            ee = None
+            self.unify(tv, Unit, ast.pos)
+        else:
+            ee, te = self.infer(ast.expr)
+            self.unify_all(tr.but(tv), te, ast.pos)
+        return T.Tagged(ast.tag, ee), tr
 
     @infer.on(E.DoStatement)
     def infer_DoStatement(self, ast):
@@ -1408,7 +886,6 @@ class TypeChecker:
 
     @infer.on(E.Quasiquote)
     def infer_Quasiquote(self, ast):
-        #print('APPLYING QTI TO', ast.expr)
         return QuoteTypeInference(self).visit(ast.expr)
 
     # Recall that parameter default values are evaluated at definition time in
@@ -1525,6 +1002,26 @@ class TypeChecker:
         raise
         return T.ModuleDefn(), self.Types(Unit)
 
+    @infer.on(E.TypeDefinition)
+    def infer_TypeDefinition(self, ast):
+        name = ast.name.name
+        if len(ast.args) == 0:
+            self.add_type_name(name, Nullary(self.infer_type(ast.expr)))
+        else:
+            tvs = [self.fresh() for a in ast.args]
+            tvar = TypeVariable(name)
+            with self.subenv():
+                for n, tv in zip(ast.args, tvs):
+                    self.type_env[n.name] = Object(Nullary(tv))
+                self.type_env[name] = Object(Nullary(tvar))
+                t = self.infer_type(ast.expr)
+            self.add_type_name(name, ConcreteTypeConstructor(
+                [Star] * len(ast.args), Star, tvs, MuType(tvar, t)))
+            if isinstance(t, DisjunctionType) and all(isinstance(s, TaggedType) for s in t.ts):
+                for s in t.ts:
+                    self.tags[s.tag] = self.generalise(FunctionType(ArgsType.create(s.t), TypeCall(tvar, tvs)))
+        return T.NoneExpr(), self.Types(Unit)
+
     @infer.on(E.SignatureDefinition)
     def infer_SignatureDefinition(self, ast):
         with self.subenv():
@@ -1535,8 +1032,10 @@ class TypeChecker:
                     name = decl.name.name
                     if len(decl.args) == 0:
                         types[name] = self.type_env[name] = Object(Nullary(self.fresh()))
+                        # HERE
                     else:
-                        types[name] = self.type_env[name] = Object(TypeConstructor(name, ArrowKind([Star for _ in decl.args], Star)))
+                        types[name] = self.type_env[name] = Object(AbstractTypeConstructor(ArrowKind([Star for _ in decl.args], Star)))
+                        # HERE
                 elif isinstance(decl, E.NameDeclaration):
                     scm = self.parse_toplevel_type(decl.annotation)
                     name = decl.name.name
@@ -1550,7 +1049,20 @@ class TypeChecker:
                 else:
                     raise RuntimeError()
             self.type_env[ast.name.name] = Object(Nullary(SignatureType(types, names)))
+            # HERE
         return T.SignatureDefn(ast.name.name, self.Types(Unit)), self.Types(Unit)
+
+    @infer.on(E.AnnotatedAssignment)
+    def infer_AnnotatedAssignment(self, ast):
+        ta, ka = self.parse_type(ast.annotation)
+        if not isinstance(ast.assignee, E.IdExpression):
+            raise ApeTypeError(pos=ast.pos, msg='Cannot write a type-annotated assignment for assignees that are not identifiers')
+        self.unify_kind(ka, Star, ast.annotation.pos)
+        ee, te = self.infer(ast.expr)
+        tta = self.Types(ta)
+        self.unify_all(tta, te, ast.pos)
+        self.add_name(ast.assignee.name, ta)
+        return T.Assignment([ast.assignee.name], ee), tta
 
     @infer.on(E.ChainedAssignment)
     def infer_ChainedAssignment(self, ast):
@@ -1561,6 +1073,7 @@ class TypeChecker:
         ee, te = self.infer(expr)
         targets = []
         assignments = []
+
         for a in assignees:
             asgnmts, target, t = ma.match_assignee(a)
             assignments.extend(asgnmts)
@@ -1585,6 +1098,11 @@ class MatchAssignee:
     @match_assignee.on(E.EmptyListExpression)
     def match_assignee_EmptyListExpression(self, asgn):
         return [], T.List([]), self.tc.Types(ListType(self.tc.fresh()))
+
+    @match_assignee.on(E.TaggedExpression)
+    def match_assignee_TaggedExpression(self, asgn):
+        assignments, targets, types = self.match_assignee(asgn.expr)
+        return assignments, T.Tagged(asgn.tag, targets), types.but(TaggedType(asgn.tag, types.vtype))
 
     @match_assignee.on(E.TupleLiteral)
     def match_assignee_TupleLiteral(self, asgn):
@@ -1687,14 +1205,25 @@ def unifies_kind(k1, k2, pos):
 
     raise ApeUnificationError(pos=pos, msg=f'Cannot unify {k1} and {k2}')
 
+def unify_constructor(t1, t2, pos):
+    su1 = unifies_kind(t1.con.kind, ArrowKind([t.kind for t in t1.ts], Star), pos)
+    s = {x.tvar: t for x, t in zip(t1.con.tvars, t1.ts)}
+    su2 = unifies(t1.apply(su1).con.expr.apply(s), t2.apply(su1), pos)
+    return compose_subst(su2, su1)
+
 def unifies(t1, t2, pos):
-    if isinstance(t1, TypeConstructor) and isinstance(t2, TypeConstructor):
-        if t1.name == t2.name:
-            return unifies_kind(t1.kind, t2.kind, pos)
-        raise ApeUnificationError(pos=pos, msg=f'Cannot unify distinct type constructors {t1.name} and {t2.name}')
+    if isinstance(t1, AbstractTypeConstructor) and isinstance(t2, AbstractTypeConstructor):
+        return unifies_kind(t1.kind, t2.kind, pos)
+
+    if isinstance(t1, TypeCall) and isinstance(t1.con, ConcreteTypeConstructor):
+        if len(t1.ts) == len(t1.con.tvars):
+            return unify_constructor(t1, t2, pos)
+    if isinstance(t2, TypeCall) and isinstance(t2.con, ConcreteTypeConstructor):
+        if len(t2.ts) == len(t2.con.tvars):
+            return unify_constructor(t2, t1, pos)
 
     if not isinstance(t1, Type) or not isinstance(t2, Type):
-        raise ApeUnificationError(pos=pos, msg=f'Can only unify types, not {t1} and {t2}')
+        raise ApeUnificationError(pos=pos, msg=f'Can only unify types, not {t1}: {type(t1)} and {t2}: {type(t2)}')
 
     if t1 == t2:
         return {}
@@ -1710,12 +1239,11 @@ def unifies(t1, t2, pos):
     if isinstance(t2, TypeVariable):
         return bind(t2.tvar, t1, pos)
 
-    # one-element tuples are transparent
-    if isinstance(t1, TupleType) and len(t1.ts) == 1:
-        return unifies(t1.ts[0], t2, pos)
-    if isinstance(t2, TupleType) and len(t2.ts) == 1:
-        return unifies(t1, t2.ts[0], pos)
     if isinstance(t1, TupleType) and isinstance(t2, TupleType):
+        if len(t1.ts) == len(t2.ts):
+            return unify_many(t1.ts, t2.ts, pos)
+
+    if isinstance(t1, DisjunctionType) and isinstance(t2, DisjunctionType):
         if len(t1.ts) == len(t2.ts):
             return unify_many(t1.ts, t2.ts, pos)
 
@@ -1775,6 +1303,7 @@ def unifies(t1, t2, pos):
         return unify_many([t1.p, t1.r], [t2.p, t2.r], pos)
     if isinstance(t1, TypeCall) and isinstance(t2, TypeCall):
         return unify_many([t1.con, *t1.ts], [t2.con, *t2.ts], pos)
+
     raise ApeUnificationError(pos=pos, msg=f'Cannot unify {t1} and {t2}')
 
 def apply(ts, subst):
