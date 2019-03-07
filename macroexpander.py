@@ -1,9 +1,9 @@
 from collections import namedtuple
-from utils import ApeSyntaxError, to_sexpr
+from utils import ApeSyntaxError
 import utils
 from astpass import DeepAstPass
 import evaluator
-from typechecker import TypeChecker, solve
+from typechecker import TypeChecker
 import cstnodes as E
 
 # MacroExpander should look recursively at all forms it is given.

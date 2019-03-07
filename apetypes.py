@@ -1,4 +1,4 @@
-from kinds import *
+import kinds as K
 from utils import Type, ApeInternalError
 
 class PrimitiveType(Type):
@@ -10,7 +10,7 @@ class PrimitiveType(Type):
 
     @property
     def kind(self):
-        return Star
+        return K.Star
 
     def __hash__(self):
         return hash((type(self),))
@@ -363,7 +363,7 @@ class DisjunctionType(Type):
 
     def __init__(self, ts):
         self.ts = ts
-        self._kind = Star
+        self._kind = K.Star
 
     def __repr__(self):
         if len(self.ts) == 0:
@@ -546,7 +546,7 @@ class TaggedType(Type):
         return NotImplemented
 
     def kind(self):
-        return Star
+        return K.Star
 
 class ListType(Type):
     def __init__(self, t):
@@ -573,7 +573,7 @@ class ListType(Type):
         return NotImplemented
 
     def kind(self):
-        return Star
+        return K.Star
 
 class SetType(Type):
     def __init__(self, t):
@@ -600,7 +600,7 @@ class SetType(Type):
         return hash((SetType, self.t))
 
     def kind(self):
-        return Star
+        return K.Star
 
 class DictType(Type):
     def __init__(self, k, v):
@@ -628,7 +628,7 @@ class DictType(Type):
         return hash((DictType, self.t))
 
     def kind(self):
-        return Star
+        return K.Star
 
 class SignatureType(Type):
     def __init__(self, types, names):
@@ -658,7 +658,7 @@ class SignatureType(Type):
         raise NotImplementedError
 
     def kind(self):
-        return Star
+        return K.Star
 
 class FunctionType(Type):
     def __init__(self, p, r):
@@ -690,7 +690,7 @@ class FunctionType(Type):
         return NotImplemented
 
     def kind(self):
-        return Star
+        return K.Star
 
 class TypeScheme:
     def __init__(self, tvars, t):
@@ -804,7 +804,7 @@ class ConcreteTypeConstructor(TypeConstructor):
         self.result_kind = result_kind
         self.tvars = tvars
         self.expr = expr
-        self.kind = ArrowKind(param_kinds, result_kind)
+        self.kind = K.ArrowKind(param_kinds, result_kind)
 
     def __repr__(self):
         return f'ConcreteTypeConstructor({self.param_kinds!r}, {self.result_kind!r}, {self.tvars!r}, {self.expr!r})'

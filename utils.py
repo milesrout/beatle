@@ -162,9 +162,7 @@ def trace(show_counter=False, show_types=False):
             local_counter = counter
 
             if show_types:
-                args_string = ', '.join(
-                        '{}: {}'.format(arg, type(arg).__name__
-                            ) for arg in args)
+                args_string = ', '.join('{}: {}'.format(arg, type(arg).__name__) for arg in args)
             else:
                 args_string = ', '.join(map(str, args))
 

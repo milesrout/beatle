@@ -201,7 +201,7 @@ class Evaluate:
 
     @assign.on(str)
     def assign_str(self, ast, value):
-        self.env[ast] = value
+        self.env[ast] = Object(value)
 
     @utils.overloadmethod(use_as_default=True, error_function=eval_error)
     def eval(self, *args, **kwds):
@@ -266,13 +266,6 @@ class Evaluate:
         if isinstance(value, utils.Expression):
             return value
         raise NotImplementedError(f'Have not implemented "{value!r}" in unevaluator')
-
-    def add_namespace(self, name, env):
-        environment = self.env
-        for part in name.parts[:-1]:
-            environment[part.name] = Namespace({})
-            environment = environment[part.name]
-        environment[name.parts[-1].name] = Namespace(env)
 
     @eval.on(T.NamespaceDefn)
     def eval_NamespaceDefn(self, ast, pos):
@@ -405,7 +398,7 @@ class Evaluate:
 
     @eval.on(T.Id)
     def eval_Id(self, ast, pos):
-        return self.env[ast.name]
+        return self.env[ast.name].value
 
     @eval.on(T.Index)
     def eval_Index(self, ast, pos):

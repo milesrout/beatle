@@ -19,21 +19,16 @@ class Parser:
     float_tokens = 'pointfloat expfloat'.split()
     string_tokens = [f'{x}_string' for x in 'fs fd fsss fddd s d sss ddd compound'.split()]
 
-    # for each element of this list, if we are parsing a compound statement and we encounter
-    # something that is the *first* element of the list, then we accept follow-on statements
-    # as long as they are an element of the list.
-    # so the first items of these lists must be unique across the whole list, but remaining items
-    # maybe hbe shared (as 'else' is).
-    # they also aren't lists, obviously, they're dictionaries, which means that
-    # they aren't really ordered. order should be enforced later.
+    # for each element of this list, if we are parsing a compound statement and
+    # we encounter something that is the *first* element of the list, then we
+    # accept follow-on statements as long as they are an element of the list.
+    # so the first items of these lists must be unique across the whole list,
+    # but remaining items may be shared (as 'else' is).
 
     base_linked_control_structures = {
         'do': {
             'do': [],
         },
-        #'class': {
-        #    'class': [['EXPR']],
-        #},
         'if': {
             'if': [['TEST']],
             'elif': [['TEST']],
@@ -62,8 +57,10 @@ class Parser:
         return [k for k in self.linked_control_structures[initial].keys() if k != initial]
 
     def calculate_compound_stmt_tokens(self):
-        self.compound_stmt_tokens = set.union(*(set.union({x for opt in L.values() for y in opt for x in y if x.islower()}, set(L.keys()))
-                                                for L in self.linked_control_structures.values()))
+        self.compound_stmt_tokens = set.union(
+            *(set(L.keys()) |
+                {x for opt in L.values() for y in opt for x in y if x.islower()}
+              for L in self.linked_control_structures.values()))
 
     @property
     @compose(list)
@@ -79,9 +76,8 @@ class Parser:
         self.brackets = 0
         self.linked_control_structures = collections.ChainMap(self.base_linked_control_structures)
         self.calculate_compound_stmt_tokens()
-        # Prepopulate these with the built-in tags
-        self.unary_tags = ['cons']
-        self.nullary_tags = ['nil']
+        self.unary_tags = []
+        self.nullary_tags = []
 
         class Error(ApeSyntaxError):
             def __init__(self, msg, pos):
@@ -308,7 +304,6 @@ class Parser:
             return E.ReturnStatement(None, pos)
         exprs = self.testlist()
         return E.ReturnStatement(E.TupleLiteral(exprs, exprs[0].pos), pos)
-        # return ReturnStatement(self.testlist('newline'))
 
     def raise_expr(self, pos):
         if self.accept('semicolon', 'newline'):
@@ -390,14 +385,6 @@ class Parser:
         yield self.name()
         while self.accept_next('dot'):
             yield self.name()
-
-    # a -> b? -> c
-    # a -> b -> c
-    # a -> (b -> c)
-    # a[b] -> c -> d
-    # (a[b]) -> (c -> d)
-    # (a -> b) -> [a] -> [b]
-    # ((a -> b) -> (([a]) -> ([b])))
 
     def toplevel_type_expr(self):
         pos = self.current_token().pos
@@ -678,8 +665,6 @@ class Parser:
         elif self.accept_next('match'):
             return self.match_stmt(pos)
         return None
-        #return self.expr_stmt()
-        ##self.raise_unexpected()
 
     def match_case(self, pos):
         tlse = self.testlist_star_expr()
@@ -1283,8 +1268,6 @@ class Parser:
         if self.accept(*self.float_tokens):
             return self.float_number()
         if self.accept(*self.string_tokens):
-            if self.current_token().line in range(59, 62):
-                pass  # self.raise_unexpected()
             return self.string()
         if self.accept('ellipsis'):
             return E.EllipsisExpression(self.get_token().pos)

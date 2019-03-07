@@ -75,4 +75,3 @@ class ArrowKind(Kind):
 
 UnaryKind = ArrowKind((Star,), Star)
 TernaryKind = ArrowKind((Star, Star, Star), Star)
-
